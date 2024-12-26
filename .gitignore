@@ -1,0 +1,13 @@
+build/
+tags
+main/build
+sdkconfig.old
+*.bak
+*.old
+.vscode
+tools/__pycache__
+.cache
+esp-idf
+esp-idf-tools
+dependencies.lock
+managed_components
