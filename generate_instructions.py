@@ -69,9 +69,9 @@ partitions_size = get_size("build/tanmatsu/partition_table/partition-table.bin")
 firmware_size = get_size("build/tanmatsu/tanmatsu-radio.bin")
 
 instructions = [
-    {"file": "bootloader.bin", "offset": bootloader_offset, "hash": bootloader_hash, "size": bootloader_size},
-    {"file": "partition-table.bin", "offset": partition_table_offset, "hash": partitions_hash, "size": partitions_size},
-    {"file": "tanmatsu-radio.bin", "offset": firmware_offset, "hash": firmware_hash, "size": firmware_size},
+    {"file": "bootloader.zz", "offset": bootloader_offset, "hash": bootloader_hash, "size": bootloader_size},
+    {"file": "partition-table.zz", "offset": partition_table_offset, "hash": partitions_hash, "size": partitions_size},
+    {"file": "tanmatsu-radio.zz", "offset": firmware_offset, "hash": firmware_hash, "size": firmware_size},
 ]
 
 # Save instructions to JSON file
