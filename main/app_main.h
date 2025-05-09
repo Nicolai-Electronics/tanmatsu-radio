@@ -21,8 +21,9 @@
 #include "esp_hosted_header.h"
 #include "esp_hosted_interface.h"
 #include "esp_hosted_transport_init.h"
+#include "interface.h"
 
 typedef struct {
-	interface_context_t *context;
+    interface_context_t *context;
 } adapter;
 #endif
