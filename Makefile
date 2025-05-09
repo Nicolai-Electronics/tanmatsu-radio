@@ -142,3 +142,8 @@ size-files:
 .PHONY: format
 format:
 	find main/ -iname '*.h' -o -iname '*.c' -o -iname '*.cpp' | xargs clang-format -i
+
+# Generate instruction json file
+.PHONY: distrib
+distrib:
+	python generate_instructions.py
