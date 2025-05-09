@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2015-2021 Espressif Systems (Shanghai) PTE LTD
+// Copyright 2015-2025 Espressif Systems (Shanghai) PTE LTD
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,15 +14,13 @@
 // limitations under the License.
 //
 
-#ifndef __NETWORK_ADAPTER_PRIV__H
-#define __NETWORK_ADAPTER_PRIV__H
+#ifndef __SLAVE_BT_UART__H__
+#define __SLAVE_BT_UART__H__
 
-#include "esp_hosted_transport.h"
-#include "esp_hosted_header.h"
-#include "esp_hosted_interface.h"
-#include "esp_hosted_transport_init.h"
+#ifdef CONFIG_BT_ENABLED
+#include "esp_bt.h"
 
-typedef struct {
-	interface_context_t *context;
-} adapter;
+void slave_bt_init_uart(esp_bt_controller_config_t *cfg);
+#endif
+
 #endif

@@ -22,11 +22,15 @@
 #include "driver/gpio.h"
 #include "driver/spi_slave_hd.h"
 
-#include "adapter.h"
 #include "interface.h"
 #include "endian.h"
 #include "mempool.h"
 #include "stats.h"
+#include "esp_hosted_interface.h"
+#include "esp_hosted_header.h"
+#include "esp_hosted_transport.h"
+#include "esp_hosted_transport_init.h"
+#include "esp_hosted_transport_spi_hd.h"
 
 #include "esp_log.h"
 static const char TAG[] = "SPI_HD_DRIVER";
@@ -264,11 +268,11 @@ static void flow_ctrl_task(void* pvParameters)
 		xSemaphoreTake(flow_ctrl_sem, portMAX_DELAY);
 
 		if (wifi_flow_ctrl)
-			buf_handle.flow_ctrl_en = H_FLOW_CTRL_ON;
+			buf_handle.wifi_flow_ctrl_en = H_FLOW_CTRL_ON;
 		else
-			buf_handle.flow_ctrl_en = H_FLOW_CTRL_OFF;
+			buf_handle.wifi_flow_ctrl_en = H_FLOW_CTRL_OFF;
 
-		ESP_LOGV(TAG, "flow_ctrl %u", buf_handle.flow_ctrl_en);
+		ESP_LOGV(TAG, "flow_ctrl %u", buf_handle.wifi_flow_ctrl_en);
 		send_to_host_queue(&buf_handle, PRIO_Q_SERIAL);
 	}
 }
@@ -693,7 +697,7 @@ static int32_t esp_spi_hd_write(interface_handle_t *handle, interface_buffer_han
 		return ESP_FAIL;
 	}
 
-	if (!buf_handle->flow_ctrl_en) {
+	if (!buf_handle->wifi_flow_ctrl_en) {
 		// skip this check for flow control packets (they don't have a payload)
 		if (!buf_handle->payload_len || !buf_handle->payload){
 			ESP_LOGE(TAG , "Invalid arguments, len:%"PRIu16, buf_handle->payload_len);
@@ -720,7 +724,7 @@ static int32_t esp_spi_hd_write(interface_handle_t *handle, interface_buffer_han
 	header->offset = htole16(offset);
 	header->seq_num = htole16(buf_handle->seq_num);
 	header->flags = buf_handle->flag;
-	header->throttle_cmd = buf_handle->flow_ctrl_en;
+	header->throttle_cmd = buf_handle->wifi_flow_ctrl_en;
 
 	memcpy(sendbuf + offset, buf_handle->payload, buf_handle->payload_len);
 

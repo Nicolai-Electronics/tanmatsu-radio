@@ -18,6 +18,7 @@
 #define __TRANSPORT_LAYER_INTERFACE_H
 #include "esp_err.h"
 #include "esp_hosted_log.h"
+#include "esp_hosted_transport.h"
 
 #ifdef CONFIG_ESP_SDIO_HOST_INTERFACE
 
@@ -46,6 +47,7 @@ typedef enum {
 	SDIO   = 0,
 	SPI    = 1,
 	SPI_HD = 2,
+	UART   = 3,
 } transport_layer;
 
 typedef enum {
@@ -72,8 +74,8 @@ typedef struct {
 	uint8_t flag;
 	uint16_t payload_len;
 	uint16_t seq_num;
-#ifdef CONFIG_ESP_SPI_HD_HOST_INTERFACE
-	uint8_t flow_ctrl_en;
+#if CONFIG_ESP_SPI_HD_HOST_INTERFACE || CONFIG_ESP_UART_HOST_INTERFACE
+	uint8_t wifi_flow_ctrl_en;
 #endif
 
 	void (*free_buf_handle)(void *buf_handle);
@@ -88,11 +90,13 @@ typedef struct {
 }interface_handle_t;
 
 #if CONFIG_ESP_SPI_HOST_INTERFACE
-#define MAX_TRANSPORT_BUF_SIZE 1600
+#define MAX_TRANSPORT_BUF_SIZE ESP_TRANSPORT_SPI_MAX_BUF_SIZE
 #elif CONFIG_ESP_SDIO_HOST_INTERFACE
-#define MAX_TRANSPORT_BUF_SIZE 1536
+#define MAX_TRANSPORT_BUF_SIZE ESP_TRANSPORT_SDIO_MAX_BUF_SIZE
 #elif CONFIG_ESP_SPI_HD_HOST_INTERFACE
-#define MAX_TRANSPORT_BUF_SIZE 1600
+#define MAX_TRANSPORT_BUF_SIZE ESP_TRANSPORT_SPI_HD_MAX_BUF_SIZE
+#elif CONFIG_ESP_UART_HOST_INTERFACE
+#define MAX_TRANSPORT_BUF_SIZE ESP_TRANSPORT_UART_MAX_BUF_SIZE
 #endif
 
 #define BSSID_BYTES_SIZE       6

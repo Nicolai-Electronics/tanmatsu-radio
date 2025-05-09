@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2015-2021 Espressif Systems (Shanghai) PTE LTD
+// Copyright 2015-2025 Espressif Systems (Shanghai) PTE LTD
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,15 +14,20 @@
 // limitations under the License.
 //
 
-#ifndef __NETWORK_ADAPTER_PRIV__H
-#define __NETWORK_ADAPTER_PRIV__H
+#include "slave_bt.h"
+#include "slave_bt_uart.h"
 
-#include "esp_hosted_transport.h"
-#include "esp_hosted_header.h"
-#include "esp_hosted_interface.h"
-#include "esp_hosted_transport_init.h"
+#include "esp_log.h"
 
-typedef struct {
-	interface_context_t *context;
-} adapter;
+#if BLUETOOTH_UART
+static const char *TAG = "bt_uart";
+
+void slave_bt_init_uart(esp_bt_controller_config_t *cfg)
+{
+	ESP_LOGI(TAG, "UART%d Pins: Tx:%d Rx:%d", BLUETOOTH_UART,
+			BT_TX_PIN, BT_RX_PIN, BT_RTS_PIN, BT_CTS_PIN);
+
+	// no specific uart init required
+	// handled by BT HCI Uart Controller
+}
 #endif
