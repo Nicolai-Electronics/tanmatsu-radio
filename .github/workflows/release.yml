@@ -28,5 +28,6 @@ jobs:
       - name: Add artifacts to release
         run: |
           gh release upload ${{ github.event.workflow_run.head_branch }} tanmatsu.zip
+          gh release upload ${{ github.event.workflow_run.head_branch }} tanmatsu-ota.zip
         env:
           GH_TOKEN: ${{ github.token }}
