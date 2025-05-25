@@ -147,3 +147,18 @@ format:
 .PHONY: distrib
 distrib:
 	python generate_instructions.py
+
+.PHONY: openocd
+openocd:
+	source "$(IDF_PATH)/export.sh" && idf.py -B $(BUILD) -DDEVICE=$(DEVICE) openocd
+
+.PHONY: gdb
+gdb:
+	source "$(IDF_PATH)/export.sh" && idf.py -B $(BUILD) -DDEVICE=$(DEVICE) gdb
+.PHONY: gdbgui
+
+gdbgui:
+	source "$(IDF_PATH)/export.sh" && idf.py -B $(BUILD) -DDEVICE=$(DEVICE) gdbgui
+
+gdbtui:
+	source "$(IDF_PATH)/export.sh" && idf.py -B $(BUILD) -DDEVICE=$(DEVICE) gdbtui
