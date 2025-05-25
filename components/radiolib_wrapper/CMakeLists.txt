@@ -1,0 +1,15 @@
+idf_component_register(
+	SRCS
+		radiolib_hal.cpp
+		radiolib_wrapper.cpp
+	INCLUDE_DIRS
+		"include"
+	PRIV_INCLUDE_DIRS
+		"private_include"
+	REQUIRES
+		esp_driver_gpio
+		esp_driver_spi
+		esp_timer
+		esp_rom
+		jgromes__radiolib
+)

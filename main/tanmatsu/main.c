@@ -12,6 +12,8 @@
 #include "app_main.h"
 #include "coprocessor_fw_version.h"
 #include "driver/gpio.h"
+#include "driver/spi_common.h"
+#include "driver/spi_master.h"
 #include "endian.h"
 #include "esp_log.h"
 #include "esp_mac.h"
@@ -24,12 +26,14 @@
 #include "mempool.h"
 #include "nvs_flash.h"
 #include "protocomm_pserial.h"
+#include "radiolib_wrapper.h"
 #include "sdkconfig.h"
 #include "slave_bt.h"
 #include "slave_control.h"
 #include "soc/soc.h"
 #include "stats.h"
 #include "sys/queue.h"
+#include "tanmatsu_hardware.h"
 #include "tanmatsu_interfaces.h"
 
 #ifndef CONFIG_IDF_TARGET_ARCH_RISCV
@@ -728,7 +732,52 @@ void task_runtime_stats_task(void* pvParameters) {
 }
 #endif
 
+static spi_device_handle_t lora_device = NULL;
+
+esp_err_t lora_initialize(void) {
+    esp_err_t res;
+
+    ESP_LOGI(TAG, "Initializing SPI bus...");
+
+    spi_bus_config_t buscfg = {
+        .miso_io_num   = BSP_LORA_MISO,
+        .mosi_io_num   = BSP_LORA_MOSI,
+        .sclk_io_num   = BSP_LORA_SCK,
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+    };
+
+    res = spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO);
+    if (res != ESP_OK) {
+        return res;
+    }
+
+    ESP_LOGI(TAG, "Initializing LoRa SPI device...");
+
+    spi_device_interface_config_t devcfg = {
+        //.command_bits   = 8,            // SX1262 uses 8-bit commands
+        .clock_speed_hz = 1000000,      // SX1262 support maximum 16MHz SPI clock
+        .mode           = 0,            // SPI mode 0
+        .spics_io_num   = BSP_LORA_CS,  // Let ESP-IDF control the chip select pin
+        .queue_size     = 8,            // Allow for queueing multiple transfers
+    };
+
+    res = spi_bus_add_device(SPI2_HOST, &devcfg, &lora_device);
+    if (res != ESP_OK) {
+        return res;
+    }
+
+    return ESP_OK;
+}
+
 void app_main() {
+    /*ESP_LOGI(TAG, "Initializing LoRa...");
+    ESP_ERROR_CHECK(lora_initialize());
+    ESP_LOGI(TAG, "Initializing radiolib...");
+    radiolib_initialize(lora_device, BSP_LORA_RESET, BSP_LORA_BUSY, -1, BSP_LORA_DIO1, -1);
+    ESP_LOGI(TAG, "LoRa test...");
+    radiolib_test();*/
+
     esp_err_t ret;
     uint8_t   capa       = 0;
     uint32_t  ext_capa   = 0;
