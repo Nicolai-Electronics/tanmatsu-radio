@@ -1,0 +1,8 @@
+description: Wrapper for RadioLib library
+url: https://github.com/nicolai-electronics/esp32-component-radiolib-wrapper
+repository: git://git@github.com:nicolai-electronics/esp32-component-radiolib-wrapper.git
+issues: https://github.com/nicolai-electronics/esp32-component-radiolib-wrapper/issues
+dependencies:
+  idf: '>=5.4.0'
+  jgromes/radiolib: ^7.1.2
+license: "MIT"
