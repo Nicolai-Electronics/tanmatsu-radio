@@ -1,0 +1,14 @@
+{
+    "cSpell.words": [
+        "Tanmatsu"
+    ],
+    "idf.pythonInstallPath": "/usr/bin/python",
+    "idf.port": "/dev/ttyACM1",
+    "idf.monitorPort": "/dev/ttyACM1",
+    "idf.openOcdConfigs": [
+        "board/esp32c6-builtin.cfg"
+    ],
+    "idf.customExtraVars": {
+        "IDF_TARGET": "esp32c6"
+    }
+}
