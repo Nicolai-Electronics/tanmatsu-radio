@@ -1,8 +1,9 @@
-# Script for generating a JSON file with flashing instructions for OTA updating via the application processor
+# Script for generating a firmware package
 
 import os
 import csv
 import json
+import zlib
 
 def convert_size(size_str):
     """Convert size string to bytes."""
@@ -52,29 +53,56 @@ def calculate_md5(filename):
 def get_size(filename):
     return os.path.getsize(filename)
 
+def compress(in_file, out_file):
+    with open(in_file, "rb") as input_file:
+        with open(out_file, "wb") as output_file:
+            output_file.write(zlib.compress(input_file.read(), 9))
+
 # Constants
 bootloader_offset = 0x0
-partition_table_offset = 0x100000
+partition_table_offset = 0x8000
+bootloader_path = "build/tanmatsu/bootloader/bootloader.bin"
+partition_table_csv_path = "partition_tables/tanmatsu_radio.csv"
+partition_table_path = "build/tanmatsu/partition_table/partition-table.bin"
+firmware_path = "build/tanmatsu/tanmatsu-radio.bin"
 
 # Generate instructions
-partitions = read_partition_table("partition_tables/tanmatsu_radio.csv")
+partitions = read_partition_table(partition_table_csv_path)
 firmware_offset = find_partition(partitions, "ota_0")["offset"]
 
-bootloader_hash = calculate_md5("build/tanmatsu/bootloader/bootloader.bin")
-partitions_hash = calculate_md5("build/tanmatsu/partition_table/partition-table.bin")
-firmware_hash = calculate_md5("build/tanmatsu/tanmatsu-radio.bin")
+bootloader_hash = calculate_md5(bootloader_path)
+partitions_hash = calculate_md5(partition_table_path)
+firmware_hash = calculate_md5(firmware_path)
 
-bootloader_size = get_size("build/tanmatsu/bootloader/bootloader.bin")
-partitions_size = get_size("build/tanmatsu/partition_table/partition-table.bin")
-firmware_size = get_size("build/tanmatsu/tanmatsu-radio.bin")
+bootloader_size = get_size(bootloader_path)
+partitions_size = get_size(partition_table_path)
+firmware_size = get_size(firmware_path)
 
-instructions = [
-    {"file": "bootloader.zz", "offset": bootloader_offset, "hash": bootloader_hash, "size": bootloader_size},
-    {"file": "partition-table.zz", "offset": partition_table_offset, "hash": partitions_hash, "size": partitions_size},
-    {"file": "tanmatsu-radio.zz", "offset": firmware_offset, "hash": firmware_hash, "size": firmware_size},
+steps = [
+    {"file": "bootloader.zz", "offset": bootloader_offset, "hash": bootloader_hash, "size": bootloader_size, "compressed": True},
+    {"file": "partitions.zz", "offset": partition_table_offset, "hash": partitions_hash, "size": partitions_size, "compressed": True},
+    {"file": "firmware.zz", "offset": firmware_offset, "hash": firmware_hash, "size": firmware_size, "compressed": True},
 ]
 
+instructions = {
+    "information": {
+        "name": "Tanmatsu radio firmware",
+        "version": "tbd"
+    },
+    "steps": steps
+}
+
+try:
+    os.mkdir("dist")
+except:
+    pass
+
 # Save instructions to JSON file
-output_file = "build/tanmatsu/instructions.json"
+output_file = "dist/instructions.trf"
 with open(output_file, "w") as f:
     json.dump(instructions, f)
+
+# Compress firmware parts
+compress(bootloader_path, "dist/bootloader.zz")
+compress(partition_table_path, "dist/partitions.zz")
+compress(firmware_path, "dist/firmware.zz")
