@@ -32,7 +32,7 @@ list(APPEND COMPONENT_SRCS "${tanmatsu_dir}/main.c")
 list(APPEND COMPONENT_ADD_INCLUDEDIRS "${tanmatsu_dir}")
 
 # Requires
-set(COMPONENT_REQUIRES esp_timer esptool_py bootloader main nvs_flash esp_rom esp_wifi wpa_supplicant protocomm protobuf-c driver app_update radiolib_wrapper esp_driver_gpio esp_driver_spi)
+set(COMPONENT_REQUIRES esp_timer esptool_py bootloader main nvs_flash esp_rom esp_wifi wpa_supplicant protocomm protobuf-c driver app_update sx126x esp_driver_gpio esp_driver_spi)
 
 register_component()
 

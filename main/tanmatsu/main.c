@@ -5,6 +5,7 @@
 
 #include <inttypes.h>
 #include <protocomm.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -26,12 +27,12 @@
 #include "mempool.h"
 #include "nvs_flash.h"
 #include "protocomm_pserial.h"
-#include "radiolib_wrapper.h"
 #include "sdkconfig.h"
 #include "slave_bt.h"
 #include "slave_control.h"
 #include "soc/soc.h"
 #include "stats.h"
+#include "sx126x.h"
 #include "sys/queue.h"
 #include "tanmatsu_hardware.h"
 #include "tanmatsu_interfaces.h"
@@ -732,7 +733,7 @@ void task_runtime_stats_task(void* pvParameters) {
 }
 #endif
 
-static spi_device_handle_t lora_device = NULL;
+static sx126x_handle_t lora_handle = {0};
 
 esp_err_t lora_initialize(void) {
     esp_err_t res;
@@ -752,28 +753,176 @@ esp_err_t lora_initialize(void) {
         return res;
     }
 
-    ESP_LOGI(TAG, "Initializing LoRa SPI device...");
+    ESP_LOGI(TAG, "Initializing LoRa radio...");
+    res = sx126x_init(&lora_handle, SPI2_HOST, BSP_LORA_CS, BSP_LORA_RESET, BSP_LORA_DIO1, BSP_LORA_BUSY);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize LoRa radio: %s", esp_err_to_name(res));
+        return res;
+    }
 
-    spi_device_interface_config_t devcfg = {
-        //.command_bits   = 8,            // SX1262 uses 8-bit commands
-        .clock_speed_hz = 1000000,      // SX1262 support maximum 16MHz SPI clock
-        .mode           = 0,            // SPI mode 0
-        .spics_io_num   = BSP_LORA_CS,  // Let ESP-IDF control the chip select pin
-        .queue_size     = 8,            // Allow for queueing multiple transfers
-    };
+    res = sx126x_set_op_mode_standby(&lora_handle, false);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set LoRa radio to standby mode: %s", esp_err_to_name(res));
+        return res;
+    }
 
-    res = spi_bus_add_device(SPI2_HOST, &devcfg, &lora_device);
+    char version_string[17] = {0};
+    res = sx126x_read_register(&lora_handle, SX126X_REG_VERSION_STRING, (uint8_t*)version_string, 16);
     if (res != ESP_OK) {
         return res;
     }
+    printf("LoRa chip version string: %s\r\n", version_string);
+
+    res = sx126x_clear_device_errors(&lora_handle);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to clear LoRa radio device errors: %s", esp_err_to_name(res));
+        return res;
+    }
+
+    const uint8_t testdata[] = {0x13, 0x37};
+    res                      = sx126x_write_buffer(&lora_handle, 0x00, testdata, sizeof(testdata));
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to write data to LoRa radio: %s", esp_err_to_name(res));
+        return res;
+    }
+
+    uint8_t read_data[sizeof(testdata)] = {0};
+    res                                 = sx126x_read_buffer(&lora_handle, 0x00, read_data, sizeof(read_data));
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read data from LoRa radio: %s", esp_err_to_name(res));
+        return res;
+    }
+
+    if (memcmp(testdata, read_data, sizeof(testdata)) != 0) {
+        ESP_LOGE(TAG, "LoRa radio initialization failed: Read data does not match written data %02x %02x", read_data[0],
+                 read_data[1]);
+        return ESP_FAIL;
+    }
+
+    res = sx126x_set_dio2_as_rf_switch_ctrl(&lora_handle, true);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to configure LoRa radio DIO2 as RF switch control: %s", esp_err_to_name(res));
+        return res;
+    }
+
+    uint8_t cmd_status = 0;
+    res                = sx126x_get_status(&lora_handle, &cmd_status, NULL);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get LoRa radio status: %s", esp_err_to_name(res));
+        return res;
+    }
+    printf("Status after dio2: 0x%02x\r\n", cmd_status);
+
+    res = sx126x_set_packet_type(&lora_handle, SX126X_PACKET_TYPE_LORA);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set LoRa radio packet type: %s", esp_err_to_name(res));
+        return res;
+    }
+
+    res = sx126x_set_rx_tx_fallback_mode(&lora_handle, SX126X_FALLBACK_MODE_STDBY_RC);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set LoRa radio RX/TX fallback mode: %s", esp_err_to_name(res));
+        return res;
+    }
+
+    res = sx126x_set_cad_params(&lora_handle, SX126X_CAD_ON_8_SYMB, 11 + 13, 10, false, 0);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set LoRa radio CAD parameters: %s", esp_err_to_name(res));
+        return res;
+    }
+
+    res = sx126x_clear_irq_status(&lora_handle, 0);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to clear LoRa radio IRQ status: %s", esp_err_to_name(res));
+        return res;
+    }
+
+    res = sx126x_calibrate(&lora_handle, true, true, true, true, true, true, true);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to calibrate LoRa radio: %s", esp_err_to_name(res));
+        return res;
+    }
+
+    while (sx126x_is_busy(&lora_handle)) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+        ESP_LOGI(TAG, "Waiting for LoRa radio to be calibrated...");
+    }
+
+    res = sx126x_get_status(&lora_handle, &cmd_status, NULL);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get LoRa radio status: %s", esp_err_to_name(res));
+        return res;
+    }
+    printf("Status after calibration: 0x%02x\r\n", cmd_status);
+
+    uint16_t errors = 0;
+
+    res = sx126x_get_device_errors(&lora_handle, &errors);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get LoRa radio device errors: %s", esp_err_to_name(res));
+        return res;
+    }
+
+    if (errors == SX126X_XOSC_START_ERR) {
+        ESP_LOGW(TAG, "LoRa radio XOSC start error detected, trying again in TCXO mode...");
+        res = sx126x_clear_device_errors(&lora_handle);
+        if (res != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to clear LoRa radio device errors: %s", esp_err_to_name(res));
+            return res;
+        }
+        res = sx126x_set_dio3_as_txco_ctrl(&lora_handle, 1.8, 5000);
+        if (res != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to configure LoRa radio DIO3 as TCXO control: %s", esp_err_to_name(res));
+            return res;
+        }
+        res = sx126x_calibrate(&lora_handle, true, true, true, true, true, true, true);
+        if (res != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to calibrate LoRa radio: %s", esp_err_to_name(res));
+            return res;
+        }
+        while (sx126x_is_busy(&lora_handle)) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+            ESP_LOGI(TAG, "Waiting for LoRa radio to be calibrated...");
+        }
+        res = sx126x_get_status(&lora_handle, &cmd_status, NULL);
+        if (res != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to get LoRa radio status: %s", esp_err_to_name(res));
+            return res;
+        }
+        printf("Status after calibration (TCXO): 0x%02x\r\n", cmd_status);
+        res = sx126x_get_device_errors(&lora_handle, &errors);
+        if (res != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to get LoRa radio device errors: %s", esp_err_to_name(res));
+            return res;
+        }
+    }
+
+    if (errors != 0) {
+        ESP_LOGE(TAG, "LoRa radio device errors detected: 0x%04x", errors);
+
+        if (errors & SX126X_ERROR_RC64K_CALIB_ERR) ESP_LOGE(TAG, "RC64K calibration error");
+        if (errors & SX126X_ERROR_RC13M_CALIB_ERR) ESP_LOGE(TAG, "RC13M calibration error");
+        if (errors & SX126X_ERROR_PLL_CALIB_ERR) ESP_LOGE(TAG, "PLL calibration error");
+        if (errors & SX126X_ERROR_ADC_CALIB_ERR) ESP_LOGE(TAG, "ADC calibration error");
+        if (errors & SX126X_ERROR_IMG_CALIB_ERR) ESP_LOGE(TAG, "Image calibration error");
+        if (errors & SX126X_XOSC_START_ERR) ESP_LOGE(TAG, "XOSC start error");
+        if (errors & SX126X_PLL_LOCK_ERR) ESP_LOGE(TAG, "PLL lock error");
+        if (errors & SX126X_PA_RAMP_ERR) ESP_LOGE(TAG, "PA ramp error");
+        // vTaskDelay(pdMS_TO_TICKS(1000));
+        // return ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "LoRa radio initialized successfully");
 
     return ESP_OK;
 }
 
 void app_main() {
-    /*ESP_LOGI(TAG, "Initializing LoRa...");
+    gpio_install_isr_service(0);
+
+    ESP_LOGI(TAG, "Initializing LoRa...");
     ESP_ERROR_CHECK(lora_initialize());
-    ESP_LOGI(TAG, "Initializing radiolib...");
+    /*ESP_LOGI(TAG, "Initializing radiolib...");
     radiolib_initialize(lora_device, BSP_LORA_RESET, BSP_LORA_BUSY, -1, BSP_LORA_DIO1, -1);
     ESP_LOGI(TAG, "LoRa test...");
     radiolib_test();*/
