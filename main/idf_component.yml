@@ -3,3 +3,4 @@ dependencies:
   ## Required IDF version
   idf:
     version: '>=5.4.0'
+  badgeteam/appfs: ^1.0.1

@@ -920,12 +920,10 @@ esp_err_t lora_initialize(void) {
 void app_main() {
     gpio_install_isr_service(0);
 
-    ESP_LOGI(TAG, "Initializing LoRa...");
-    ESP_ERROR_CHECK(lora_initialize());
-    /*ESP_LOGI(TAG, "Initializing radiolib...");
-    radiolib_initialize(lora_device, BSP_LORA_RESET, BSP_LORA_BUSY, -1, BSP_LORA_DIO1, -1);
-    ESP_LOGI(TAG, "LoRa test...");
-    radiolib_test();*/
+    esp_err_t lora_res = lora_initialize();
+    if (lora_res != ESP_OK) {
+        ESP_LOGE(TAG, "LoRa radio initialization failed: %s", esp_err_to_name(lora_res));
+    }
 
     esp_err_t ret;
     uint8_t   capa       = 0;
