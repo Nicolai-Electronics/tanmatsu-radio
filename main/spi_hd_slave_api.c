@@ -31,6 +31,7 @@
 #include "esp_hosted_transport.h"
 #include "esp_hosted_transport_init.h"
 #include "esp_hosted_transport_spi_hd.h"
+#include "esp_hosted_coprocessor_fw_ver.h"
 
 #include "esp_log.h"
 static const char TAG[] = "SPI_HD_DRIVER";
@@ -96,11 +97,11 @@ static const char TAG[] = "SPI_HD_DRIVER";
 #endif
 
 #if H_DATAREADY_ACTIVE_HIGH
-  #define set_dataready_gpio()     { data_ready_gpio_active = true; gpio_set_level(GPIO_DATA_READY, 1); }
-  #define reset_dataready_gpio()   { gpio_set_level(GPIO_DATA_READY, 0); data_ready_gpio_active = false; }
+  #define set_dataready_gpio()     { ESP_EARLY_LOGV(TAG, "set_dataready_gpio"); data_ready_gpio_active = true; gpio_set_level(GPIO_DATA_READY, 1); }
+  #define reset_dataready_gpio()   { ESP_EARLY_LOGV(TAG, "reset_dataready_gpio"); gpio_set_level(GPIO_DATA_READY, 0); data_ready_gpio_active = false; }
 #else
-  #define set_dataready_gpio()     { data_ready_gpio_active = true; gpio_set_level(GPIO_DATA_READY, 0); }
-  #define reset_dataready_gpio()   { gpio_set_level(GPIO_DATA_READY, 1); data_ready_gpio_active = false; }
+  #define set_dataready_gpio()     { ESP_EARLY_LOGV(TAG, "set_dataready_gpio"); data_ready_gpio_active = true; gpio_set_level(GPIO_DATA_READY, 0); }
+  #define reset_dataready_gpio()   { ESP_EARLY_LOGV(TAG, "reset_dataready_gpio"); gpio_set_level(GPIO_DATA_READY, 1); data_ready_gpio_active = false; }
 #endif
 
 // for flow control
@@ -145,7 +146,7 @@ static struct hosted_mempool * trans_tx_g;
 static struct hosted_mempool * trans_rx_g;
 static SemaphoreHandle_t mempool_tx_sem = NULL; // to count number of Tx bufs in IDF SPI HD driver
 
-static inline void spi_hd_mempool_create()
+static inline void spi_hd_mempool_create(void)
 {
 	buf_mp_tx_g = hosted_mempool_create(NULL, 0,
 			TX_MEMPOOL_NUM_BLOCKS, SPI_HD_BUFFER_SIZE);
@@ -163,7 +164,7 @@ static inline void spi_hd_mempool_create()
 #endif
 }
 
-static inline void spi_hd_mempool_destroy()
+static inline void spi_hd_mempool_destroy(void)
 {
 	hosted_mempool_destroy(buf_mp_tx_g);
 	hosted_mempool_destroy(buf_mp_rx_g);
@@ -214,6 +215,7 @@ static inline void spi_hd_trans_rx_free(spi_slave_hd_data_t *trans)
 static bool cb_rx_ready(void *arg, spi_slave_hd_event_t *event, BaseType_t *awoken)
 {
 	// rx dma buffer ready
+	ESP_EARLY_LOGV(TAG, "cb_rx_ready");
 
 	// update count
 	rx_ready_buf_num++;
@@ -226,7 +228,7 @@ static bool cb_rx_ready(void *arg, spi_slave_hd_event_t *event, BaseType_t *awok
 static bool cb_tx_ready(void *arg, spi_slave_hd_event_t *event, BaseType_t *awoken)
 {
 	// tx buffer loaded to DMA
-
+	ESP_EARLY_LOGD(TAG, "cb_tx_ready %u (current %u)", event->trans->len, tx_ready_buf_size);
 	// save the int mask
 	uint32_t int_mask = tx_ready_buf_size & SPI_HD_INT_MASK;
 
@@ -251,6 +253,7 @@ static bool cb_cmd9_recv(void *arg, spi_slave_hd_event_t *event, BaseType_t *awo
 	// clear the mask
 	tx_ready_buf_size &= SPI_HD_TX_BUF_LEN_MASK;
 
+	ESP_EARLY_LOGD(TAG, "cb_cmd9_recv %u", tx_ready_buf_size);
 	// clear Data Ready
 	reset_dataready_gpio();
 
@@ -289,14 +292,14 @@ static void start_rx_data_throttling_if_needed(void)
 			return;
 
 		queue_load = uxQueueMessagesWaiting(spi_hd_rx_queue[PRIO_Q_OTHERS]);
-#if ESP_PKT_STATS
-		pkt_stats.slave_wifi_rx_msg_loaded = queue_load;
-#endif
 
 		load_percent = (queue_load*100/SPI_HD_QUEUE_SIZE);
 		if (load_percent > slv_cfg_g.throttle_high_threshold) {
 			slv_state_g.current_throttling = 1;
 			wifi_flow_ctrl = 1;
+#if ESP_PKT_STATS
+		pkt_stats.sta_flowctrl_on++;
+#endif
 			TRIGGER_FLOW_CTRL();
 		}
 	}
@@ -310,14 +313,15 @@ static void stop_rx_data_throttling_if_needed(void)
 	if (slv_state_g.current_throttling) {
 
 		queue_load = uxQueueMessagesWaiting(spi_hd_rx_queue[PRIO_Q_OTHERS]);
-#if ESP_PKT_STATS
-		pkt_stats.slave_wifi_rx_msg_loaded = queue_load;
-#endif
+
 
 		load_percent = (queue_load*100/SPI_HD_QUEUE_SIZE);
 		if (load_percent < slv_cfg_g.throttle_low_threshold) {
 			slv_state_g.current_throttling = 0;
 			wifi_flow_ctrl = 0;
+#if ESP_PKT_STATS
+		pkt_stats.sta_flowctrl_off++;
+#endif
 			TRIGGER_FLOW_CTRL();
 		}
 	}
@@ -406,12 +410,15 @@ static void spi_hd_rx_task(void* pvParameters)
 	spi_slave_hd_data_t *ret_trans = NULL;
 	esp_err_t res;
 	uint16_t len = 0, offset = 0;
+	uint8_t flags = 0;
 
 	struct esp_payload_header *header = NULL;
 	interface_buffer_handle_t buf_handle = {0};
 #if CONFIG_ESP_SPI_HD_CHECKSUM
 	uint16_t rx_checksum = 0, checksum = 0;
 #endif
+
+	ESP_LOGD(TAG, "starting spi_hd_rx_task");
 
 	// prepare buffers and preload rx transactions
 	for (i = 0; i < SPI_HD_QUEUE_SIZE; i++) {
@@ -433,10 +440,14 @@ static void spi_hd_rx_task(void* pvParameters)
 
 	// spi hd now ready: open data path
 	if (context.event_handler) {
+		ESP_LOGD(TAG, "Trigger open data path at slave");
 		context.event_handler(ESP_OPEN_DATA_PATH);
+	} else {
+		ESP_LOGW(TAG, "No event handler, skipping open data path");
 	}
 
 	while (1) {
+
 		// wait for incoming transactions
 		res = spi_slave_hd_get_trans_res(SPI_HOST, SPI_SLAVE_CHAN_RX,
 				&ret_trans, portMAX_DELAY);
@@ -460,7 +471,22 @@ static void spi_hd_rx_task(void* pvParameters)
 		header = (struct esp_payload_header *)buf_handle.payload;
 		len = le16toh(header->len);
 		offset = le16toh(header->offset);
+		flags = header->flags;
 
+		ESP_LOGV(TAG, "Received flags: 0x%02x", flags);
+
+		if (flags & FLAG_POWER_SAVE_STARTED) {
+			ESP_LOGI(TAG, "Host informed starting to power sleep");
+			if (context.event_handler) {
+				context.event_handler(ESP_POWER_SAVE_ON);
+			}
+		} else if (flags & FLAG_POWER_SAVE_STOPPED) {
+			ESP_LOGI(TAG, "Host informed that it waken up");
+			tx_ready_buf_size = 0;
+			if (context.event_handler) {
+				context.event_handler(ESP_POWER_SAVE_OFF);
+			}
+		}
 		if (buf_handle.payload_len < len+offset) {
 			ESP_LOGE(TAG, "%s: err: read_len[%u] < len[%u]+offset[%u]", __func__,
 					buf_handle.payload_len, len, offset);
@@ -529,6 +555,10 @@ static void spi_hd_tx_done_task(void* pvParameters)
 
 static interface_handle_t * esp_spi_hd_init(void)
 {
+	if (if_handle_g.state >= DEACTIVE) {
+		return &if_handle_g;
+	}
+
 	esp_err_t ret = ESP_OK;
 	uint32_t value = 0;
 	uint16_t prio_q_idx = 0;
@@ -559,7 +589,7 @@ static interface_handle_t * esp_spi_hd_init(void)
 	gpio_set_pull_mode(GPIO_SCLK, GPIO_PULLUP_ONLY);
 	gpio_set_pull_mode(GPIO_CS, GPIO_PULLUP_ONLY);
 
-	ESP_LOGI(TAG, "SPI HD Host:%"PRIu16 " mode: %"PRIu16 ", Freq:ConfigAtHost",
+	ESP_LOGI(TAG, "SPI HD Host:%"PRIu16" mode: %"PRIu16 ", Freq:ConfigAtHost",
 			SPI_HOST, slave_hd_cfg.mode);
 #if (NUM_DATA_BITS == 4)
 	ESP_LOGI(TAG, "SPI HD GPIOs: Dat0: %"PRIu16 ", Dat1: %"PRIu16 ", Dat2: %"PRIu16
@@ -627,27 +657,34 @@ static interface_handle_t * esp_spi_hd_init(void)
 	}
 
 	assert(xTaskCreate(spi_hd_rx_task, "spi_hd_rx_task" ,
-			CONFIG_ESP_DEFAULT_TASK_STACK_SIZE, NULL,
-			CONFIG_ESP_DEFAULT_TASK_PRIO, NULL) == pdTRUE);
+			CONFIG_ESP_HOSTED_DEFAULT_TASK_STACK_SIZE, NULL,
+			CONFIG_ESP_HOSTED_DEFAULT_TASK_PRIORITY, NULL) == pdTRUE);
 
 	// task to clean up after doing tx
 	assert(xTaskCreate(spi_hd_tx_done_task, "spi_hd_tx_done_task" ,
-			CONFIG_ESP_DEFAULT_TASK_STACK_SIZE, NULL,
-			CONFIG_ESP_DEFAULT_TASK_PRIO, NULL) == pdTRUE);
+			CONFIG_ESP_HOSTED_DEFAULT_TASK_STACK_SIZE, NULL,
+			CONFIG_ESP_HOSTED_DEFAULT_TASK_PRIORITY, NULL) == pdTRUE);
 
 	assert(xTaskCreate(flow_ctrl_task, "flow_ctrl_task" ,
-			CONFIG_ESP_DEFAULT_TASK_STACK_SIZE, NULL ,
-			CONFIG_ESP_DEFAULT_TASK_PRIO, NULL) == pdTRUE);
+			CONFIG_ESP_HOSTED_DEFAULT_TASK_STACK_SIZE, NULL ,
+			CONFIG_ESP_HOSTED_DEFAULT_TASK_PRIORITY, NULL) == pdTRUE);
 
 	// data path opened. Continue
 	memset(&if_handle_g, 0, sizeof(if_handle_g));
-	if_handle_g.state = INIT;
+	if_handle_g.state = ACTIVE;
 
 	return &if_handle_g;
 }
 
 static void esp_spi_hd_deinit(interface_handle_t * handle)
 {
+#if H_PS_UNLOAD_BUS_WHILE_PS
+
+	if (if_handle_g.state == DEINIT) {
+		ESP_LOGW(TAG, "SPI HD already deinitialized");
+		return;
+	}
+	if_handle_g.state = DEINIT;
 	spi_hd_mempool_destroy();
 	vSemaphoreDelete(mempool_tx_sem);
 	mempool_tx_sem = NULL;
@@ -658,6 +695,7 @@ static void esp_spi_hd_deinit(interface_handle_t * handle)
 	}
 
 	assert(spi_slave_hd_deinit(SPI_HOST) == ESP_OK);
+#endif
 }
 
 static esp_err_t esp_spi_hd_reset(interface_handle_t *handle)
@@ -725,6 +763,7 @@ static int32_t esp_spi_hd_write(interface_handle_t *handle, interface_buffer_han
 	header->seq_num = htole16(buf_handle->seq_num);
 	header->flags = buf_handle->flag;
 	header->throttle_cmd = buf_handle->wifi_flow_ctrl_en;
+	header->flags = buf_handle->flag;
 
 	memcpy(sendbuf + offset, buf_handle->payload, buf_handle->payload_len);
 
@@ -733,8 +772,8 @@ static int32_t esp_spi_hd_write(interface_handle_t *handle, interface_buffer_han
 				offset+buf_handle->payload_len));
 #endif
 
-	ESP_LOGD(TAG, "sending %"PRIu32 " bytes", total_len);
-	ESP_HEXLOGD("spi_hd_tx", sendbuf, total_len);
+	ESP_LOGD(TAG, "sending %"PRIu32 " bytes, flag: 0x%02x", total_len, buf_handle->flag);
+	ESP_HEXLOGD("spi_hd_tx", sendbuf, total_len, 32);
 
 	tx_trans = spi_hd_trans_tx_alloc(MEMSET_REQUIRED);
 	tx_trans->data = sendbuf;
@@ -842,6 +881,20 @@ void generate_startup_event(uint8_t cap, uint32_t ext_cap)
 	*pos = ESP_PRIV_TX_Q_SIZE;          pos++;len++;
 	*pos = LENGTH_1_BYTE;               pos++;len++;
 	*pos = SPI_HD_QUEUE_SIZE;           pos++;len++;
+
+	// convert fw version into a uint32_t
+	uint32_t fw_version = ESP_HOSTED_VERSION_VAL(PROJECT_VERSION_MAJOR_1,
+			PROJECT_VERSION_MINOR_1,
+			PROJECT_VERSION_PATCH_1);
+
+	// send fw version as a little-endian uint32_t
+	*pos = ESP_PRIV_FIRMWARE_VERSION;   pos++;len++;
+	*pos = LENGTH_4_BYTE;               pos++;len++;
+	// send fw_version as a little endian 32bit value
+	*pos = (fw_version & 0xff);         pos++;len++;
+	*pos = (fw_version >> 8) & 0xff;    pos++;len++;
+	*pos = (fw_version >> 16) & 0xff;   pos++;len++;
+	*pos = (fw_version >> 24) & 0xff;   pos++;len++;
 
 	/* TLVs end */
 

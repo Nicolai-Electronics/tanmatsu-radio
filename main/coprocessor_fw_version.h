@@ -1,4 +1,0 @@
-#pragma once
-#define PROJECT_VERSION_MAJOR_1 1
-#define PROJECT_VERSION_MINOR_1 0
-#define PROJECT_VERSION_PATCH_1 0
