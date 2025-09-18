@@ -1,0 +1,3 @@
+[submodule "components/sx126x"]
+	path = components/sx126x
+	url = git@github.com:Nicolai-Electronics/esp32-component-sx126x.git
