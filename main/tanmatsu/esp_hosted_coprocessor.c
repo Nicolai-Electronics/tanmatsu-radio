@@ -592,6 +592,11 @@ static void process_priv_pkt(uint8_t* payload, uint16_t payload_len) {
 
     event = (struct esp_priv_event*)payload;
 
+    for (uint16_t i = 0; i < payload_len; i++) {
+        printf("%02X ", payload[i]);
+    }
+    printf("\n");
+
     if (event->event_type == ESP_PRIV_EVENT_INIT) {
 
         ESP_LOGI(TAG, "Slave init_config received from host");
@@ -601,6 +606,8 @@ static void process_priv_pkt(uint8_t* payload, uint16_t payload_len) {
         if (ret) {
             ESP_LOGE(TAG, "failed to init event\n\r");
         }
+    } else if (event->event_type == 0x01) {
+        printf("Test string: \"%s\"\r\n", event->event_data);
     } else {
         ESP_LOGW(TAG, "Drop unknown event\n\r");
     }
@@ -618,6 +625,8 @@ static void process_rx_pkt(interface_buffer_handle_t* buf_handle) {
     payload_len = le16toh(header->len);
 
     ESP_HEXLOGD("bus_RX", buf_handle->payload, buf_handle->payload_len, 32);
+
+    printf("Packet RX (%u): %u\r\n", buf_handle->payload_len, buf_handle->if_type);
 
     if (buf_handle->if_type == ESP_STA_IF && station_connected) {
         /* Forward data to wlan driver */
