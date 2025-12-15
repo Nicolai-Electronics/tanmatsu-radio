@@ -15,7 +15,6 @@ set(COMPONENT_SRCS
 	"stats.c"
 	"mempool_ll.c"
 	"host_power_save.c"
-	"lwip_filter.c"
 )
 
 set(COMPONENT_ADD_INCLUDEDIRS
