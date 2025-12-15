@@ -21,6 +21,14 @@ menu "Example Configuration"
 			config C2_C5_MODULE_SUB_BOARD
 				bool "ESP32-P4 EV Sub-Board for C2 & C5"
 				depends on IDF_TARGET_ESP32C2 || IDF_TARGET_ESP32C5
+
+			config ESP_HOST_DEV_BOARD_P4_C5_CORE
+				bool "ESP32-P4-C5 Core Board with on-board C5"
+				depends on IDF_TARGET_ESP32C5
+
+			config ESP_HOST_DEV_BOARD_P4_C6_CORE
+				bool "ESP32-P4-C6 Core Board with on-board C6"
+				depends on IDF_TARGET_ESP32C6
 		endchoice
 
 		choice ESP_HOST_INTERFACE
@@ -41,10 +49,9 @@ menu "Example Configuration"
 				help
 					Enable/Disable SDIO host interface
 
-			# SPI Half Duplex is not supported in ESP32
 			config ESP_SPI_HD_HOST_INTERFACE
 				bool "SPI Half-duplex"
-				depends on !IDF_TARGET_ESP32
+				depends on SOC_SPI_SUPPORT_SLAVE_HD_VER2
 				help
 					Enable/Disable SPI Half-duplex host interface
 
@@ -112,6 +119,8 @@ menu "Example Configuration"
 					depends on SPI_HSPI
 					int "Slave GPIO pin for Host MOSI"
 					default 20 if ESP_HOST_DEV_BOARD_P4_FUNC_BOARD
+					default 8 if ESP_HOST_DEV_BOARD_P4_C5_CORE
+					default 20 if ESP_HOST_DEV_BOARD_P4_C6_CORE
 					default 13 if IDF_TARGET_ESP32
 					default 11 if IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3
 					default 7
@@ -122,6 +131,8 @@ menu "Example Configuration"
 					depends on SPI_HSPI
 					int "Slave GPIO pin for Host MISO"
 					default 21 if ESP_HOST_DEV_BOARD_P4_FUNC_BOARD
+					default 7 if ESP_HOST_DEV_BOARD_P4_C5_CORE
+					default 21 if ESP_HOST_DEV_BOARD_P4_C6_CORE
 					default 12 if IDF_TARGET_ESP32
 					default 13 if IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3
 					default 2
@@ -132,6 +143,8 @@ menu "Example Configuration"
 					depends on SPI_HSPI
 					int "Slave GPIO pin for Host CLK"
 					default 19 if ESP_HOST_DEV_BOARD_P4_FUNC_BOARD
+					default 9 if ESP_HOST_DEV_BOARD_P4_C5_CORE
+					default 19 if ESP_HOST_DEV_BOARD_P4_C6_CORE
 					default 3 if IDF_TARGET_ESP32C5
 					default 0 if IDF_TARGET_ESP32C2 && C2_C5_MODULE_SUB_BOARD
 					default 14 if IDF_TARGET_ESP32
@@ -144,8 +157,11 @@ menu "Example Configuration"
 					depends on SPI_HSPI
 					int "Slave GPIO pin for Host  CS"
 					default 18 if ESP_HOST_DEV_BOARD_P4_FUNC_BOARD
+					default 10 if ESP_HOST_DEV_BOARD_P4_C5_CORE
+					default 18 if ESP_HOST_DEV_BOARD_P4_C6_CORE
 					default 15 if IDF_TARGET_ESP32
 					default 10 if IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3
+					default 8 if IDF_TARGET_ESP32C61
 					default 10
 					help
 						SPI controller Host CS
@@ -201,12 +217,15 @@ menu "Example Configuration"
 				config ESP_SPI_GPIO_HANDSHAKE
 					int "Slave GPIO pin for handshake"
 					default 22 if ESP_HOST_DEV_BOARD_P4_FUNC_BOARD
-					default 18 if IDF_TARGET_ESP32C2 && C2_C5_MODULE_SUB_BOARD
+					default 14 if ESP_HOST_DEV_BOARD_P4_C5_CORE
+					default 22 if ESP_HOST_DEV_BOARD_P4_C6_CORE
+					default 4 if IDF_TARGET_ESP32C2 && C2_C5_MODULE_SUB_BOARD
 					default 3 if IDF_TARGET_ESP32C2 && !C2_C5_MODULE_SUB_BOARD
 					default 4 if IDF_TARGET_ESP32C5 && C2_C5_MODULE_SUB_BOARD
 					default 1 if IDF_TARGET_ESP32C5 && !C2_C5_MODULE_SUB_BOARD
 					default 3 if IDF_TARGET_ESP32C2 || IDF_TARGET_ESP32C3 || IDF_TARGET_ESP32C6
 					default 17 if IDF_TARGET_ESP32S3 || IDF_TARGET_ESP32S2
+					default 22 if IDF_TARGET_ESP32C61
 					default 26
 					help
 						Slave GPIO pin to use for handshake with other spi controller
@@ -214,10 +233,13 @@ menu "Example Configuration"
 				config ESP_SPI_GPIO_DATA_READY
 					int "Slave GPIO pin for data ready interrupt"
 					default 23 if ESP_HOST_DEV_BOARD_P4_FUNC_BOARD
+					default 13 if ESP_HOST_DEV_BOARD_P4_C5_CORE
+					default 23 if ESP_HOST_DEV_BOARD_P4_C6_CORE
 					default 1 if IDF_TARGET_ESP32C2 && C2_C5_MODULE_SUB_BOARD
 					default 4 if IDF_TARGET_ESP32C2 && !C2_C5_MODULE_SUB_BOARD
 					default 0 if IDF_TARGET_ESP32C5 && C2_C5_MODULE_SUB_BOARD
 					default 4 if IDF_TARGET_ESP32C5 && !C2_C5_MODULE_SUB_BOARD
+					default 23 if IDF_TARGET_ESP32C61
 					default 4
 					help
 						Slave GPIO pin for indicating host that SPI slave has data to be read by host
@@ -243,7 +265,8 @@ menu "Example Configuration"
 				int "ESP to Host SPI queue size"
 				default 10 if IDF_TARGET_ESP32
 				default 6 if IDF_TARGET_ESP32C2 && BT_ENABLED
-				default 10 if IDF_TARGET_ESP32C2
+				default 10 if IDF_TARGET_ESP32C2 || IDF_TARGET_ESP32C61
+				default 10 if IDF_TARGET_ESP32C61
 				default 20
 				help
 					Very small tx queue will lower ESP -- SPI --> Host data rate
@@ -253,6 +276,7 @@ menu "Example Configuration"
 				default 10 if IDF_TARGET_ESP32
 				default 6 if IDF_TARGET_ESP32C2 && BT_ENABLED
 				default 7 if IDF_TARGET_ESP32C2
+				default 10 if IDF_TARGET_ESP32C61
 				default 20
 				help
 					Very small RX queue will lower ESP <-- SPI -- Host data rate
@@ -301,6 +325,7 @@ menu "Example Configuration"
 					int "CMD GPIO number"
 					range 15 15 if IDF_TARGET_ESP32
 					range 18 18 if IDF_TARGET_ESP32C6
+					range 25 25 if IDF_TARGET_ESP32C61
 					range 10 10 if IDF_TARGET_ESP32C5
 					help
 						"Value cannot be configured. Displayed for reference."
@@ -309,6 +334,7 @@ menu "Example Configuration"
 					int "CLK GPIO number"
 					range 14 14 if IDF_TARGET_ESP32
 					range 19 19 if IDF_TARGET_ESP32C6
+					range 26 26 if IDF_TARGET_ESP32C61
 					range 9 9 if IDF_TARGET_ESP32C5
 					help
 						"Value cannot be configured. Displayed for reference."
@@ -317,6 +343,7 @@ menu "Example Configuration"
 					int "D0 GPIO number"
 					range 2 2 if IDF_TARGET_ESP32
 					range 20 20 if IDF_TARGET_ESP32C6
+					range 27 27 if IDF_TARGET_ESP32C61
 					range 8 8 if IDF_TARGET_ESP32C5
 					help
 						"Value cannot be configured. Displayed for reference."
@@ -325,6 +352,7 @@ menu "Example Configuration"
 					int "D1 GPIO number"
 					range 4 4 if IDF_TARGET_ESP32
 					range 21 21 if IDF_TARGET_ESP32C6
+					range 28 28 if IDF_TARGET_ESP32C61
 					range 7 7 if IDF_TARGET_ESP32C5
 					help
 						"Value cannot be configured. Displayed for reference."
@@ -333,6 +361,7 @@ menu "Example Configuration"
 					int "D2 GPIO number"
 					range 12 12 if IDF_TARGET_ESP32
 					range 22 22 if IDF_TARGET_ESP32C6
+					range 22 22 if IDF_TARGET_ESP32C61
 					range 14 14 if IDF_TARGET_ESP32C5
 					help
 						"Value cannot be configured. Displayed for reference."
@@ -341,6 +370,7 @@ menu "Example Configuration"
 					int "D3 GPIO number"
 					range 13 13 if IDF_TARGET_ESP32
 					range 23 23 if IDF_TARGET_ESP32C6
+					range 23 23 if IDF_TARGET_ESP32C61
 					range 13 13 if IDF_TARGET_ESP32C5
 					help
 						"Value cannot be configured. Displayed for reference."
@@ -371,12 +401,14 @@ menu "Example Configuration"
 
 			config ESP_SDIO_TX_Q_SIZE
 				int "SDIO TX queue size"
+				default 10 if IDF_TARGET_ESP32C61
 				default 20
 				help
 					Very small TX queue will lower ESP --> SDIO -- Host data rate
 
 			config ESP_SDIO_RX_Q_SIZE
 				int "SDIO RX queue size"
+				default 10 if IDF_TARGET_ESP32C61
 				default 20
 				help
 					Very small RX queue will lower ESP <-- SDIO -- Host data rate
@@ -441,6 +473,9 @@ menu "Example Configuration"
 				config ESP_SPI_HD_GPIO_CS
 					int "Slave GPIO pin for Host CS"
 					default 18 if ESP_HOST_DEV_BOARD_P4_FUNC_BOARD
+					default 10 if ESP_HOST_DEV_BOARD_P4_C5_CORE
+					default 18 if ESP_HOST_DEV_BOARD_P4_C6_CORE
+					default 8 if IDF_TARGET_ESP32C61
 					default 10
 					help
 						SPI HD controller Host CS
@@ -448,6 +483,8 @@ menu "Example Configuration"
 				config ESP_SPI_HD_GPIO_CLK
 					int "Slave GPIO pin for Host CLK"
 					default 19 if ESP_HOST_DEV_BOARD_P4_FUNC_BOARD
+					default 9 if ESP_HOST_DEV_BOARD_P4_C5_CORE
+					default 19 if ESP_HOST_DEV_BOARD_P4_C6_CORE
 					default 3 if IDF_TARGET_ESP32C5
 					default 0 if IDF_TARGET_ESP32C2
 					default 6
@@ -457,6 +494,8 @@ menu "Example Configuration"
 				config ESP_SPI_HD_GPIO_D0
 					int "Slave GPIO pin for Host D0"
 					default 20 if ESP_HOST_DEV_BOARD_P4_FUNC_BOARD
+					default 8 if ESP_HOST_DEV_BOARD_P4_C5_CORE
+					default 20 if ESP_HOST_DEV_BOARD_P4_C6_CORE
 					default 7
 					help
 						SPI HD controller Host D0
@@ -464,6 +503,8 @@ menu "Example Configuration"
 				config ESP_SPI_HD_GPIO_D1
 					int "Slave GPIO pin for Host D1"
 					default 21 if ESP_HOST_DEV_BOARD_P4_FUNC_BOARD
+					default 7 if ESP_HOST_DEV_BOARD_P4_C5_CORE
+					default 21 if ESP_HOST_DEV_BOARD_P4_C6_CORE
 					default 2
 					help
 						SPI HD controller Host D1
@@ -472,6 +513,9 @@ menu "Example Configuration"
 					depends on ESP_SPI_HD_PRIV_INTERFACE_4_DATA_LINES
 					int "Slave GPIO pin for Host D2"
 					default 22 if ESP_HOST_DEV_BOARD_P4_FUNC_BOARD
+					default 14 if ESP_HOST_DEV_BOARD_P4_C5_CORE
+					default 22 if ESP_HOST_DEV_BOARD_P4_C6_CORE
+					default 4 if IDF_TARGET_ESP32C61
 					default 5
 					help
 						SPI HD controller Host D2
@@ -480,6 +524,9 @@ menu "Example Configuration"
 					depends on ESP_SPI_HD_PRIV_INTERFACE_4_DATA_LINES
 					int "Slave GPIO pin for Host D3"
 					default 23 if ESP_HOST_DEV_BOARD_P4_FUNC_BOARD
+					default 13 if ESP_HOST_DEV_BOARD_P4_C5_CORE
+					default 23 if ESP_HOST_DEV_BOARD_P4_C6_CORE
+					default 3 if IDF_TARGET_ESP32C61
 					default 4
 					help
 						SPI HD controller Host D3
@@ -487,8 +534,11 @@ menu "Example Configuration"
 				config ESP_SPI_HD_GPIO_DATA_READY
 					int "Slave GPIO pin for Data Ready"
 					default 2 if ESP_HOST_DEV_BOARD_P4_FUNC_BOARD
+					default 28 if ESP_HOST_DEV_BOARD_P4_C5_CORE
+					default 9 if ESP_HOST_DEV_BOARD_P4_C6_CORE
 					default 0 if IDF_TARGET_ESP32C5
 					default 1 if IDF_TARGET_ESP32C2
+					default 23 if IDF_TARGET_ESP32C61
 					default 11
 					help
 						Slave GPIO pin for indicating host that SPI slave has data to be read by host
@@ -517,6 +567,7 @@ menu "Example Configuration"
 				int "Queue size"
 				default 12 if IDF_TARGET_ESP32C2
 				default 10 if IDF_TARGET_ESP32C5
+				default 10 if IDF_TARGET_ESP32C61
 				default 20
 				help
 					Very small queue will lower SPI HD data rate
@@ -549,6 +600,7 @@ menu "Example Configuration"
 				default 5 if IDF_TARGET_ESP32C2 || IDF_TARGET_ESP32C3
 				default 14 if IDF_TARGET_ESP32C5
 				default 21 if IDF_TARGET_ESP32C6
+				default 23 if IDF_TARGET_ESP32C61
 				default 5 if IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3
 				help
 					GPIO used for UART TX
@@ -559,6 +611,7 @@ menu "Example Configuration"
 				default 4 if IDF_TARGET_ESP32C2 || IDF_TARGET_ESP32C3
 				default 13 if IDF_TARGET_ESP32C5
 				default 20 if IDF_TARGET_ESP32C6
+				default 22 if IDF_TARGET_ESP32C61
 				default 4 if IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3
 				help
 					GPIO used for UART RX
@@ -837,6 +890,24 @@ menu "Example Configuration"
 		help
 			Enable/disable sleeps while OTA operations
 
+	config ESP_WIFI_DPP_SUPPORT
+		bool "Enable Wi-Fi Easy Connect (DPP)"
+		default n
+		help
+			Enable Wi-Fi Easy Connect (DPP) support
+
+	config ESP_HOSTED_ALLOW_FULL_APP_DESC
+		bool "Return the Full App Descriptor"
+		default n
+		help
+			Returns the full app descriptor when selected.
+			By default the returned app descriptor only contains:
+			- Project Name
+			- Project Version
+			- IDF Version
+			Full app descriptor returns all information contained in esp_app_desc_t.
+			**WARNING** The full app descriptor may include sensitive build-time metadata.
+
 	menu "Hosted Debugging"
 		config ESP_RAW_THROUGHPUT_TRANSPORT
 			bool "RawTP: Transport level throughput debug test"
@@ -884,142 +955,6 @@ menu "Example Configuration"
 				available memory.
 	endmenu
 
-	config ESP_HOSTED_NETWORK_SPLIT_ENABLED
-		bool "Enable Network Split: Shared IP address between host and slave"
-		depends on !IDF_TARGET_ESP32C2 && !IDF_TARGET_ESP32C3
-		default n
-		help
-			Enables the LWIP stack on the slave to process its own set of ports,
-			alongside the host stack. Helps split network traffic and allows
-			background tasks on the slave, even when the host is in low-power mode.
-
-	menu "Network Split Configuration"
-		depends on ESP_HOSTED_NETWORK_SPLIT_ENABLED
-
-		choice
-			prompt "Destination LWIP for unfiltered packet"
-			default ESP_DEFAULT_LWIP_SLAVE
-			help
-				Packets having destination port within 'remote' port range are forwarded to host. Rest unfiltered packets, are to be sent to this LWIP. Please note:
-				(1) These settings are only for IP packets, yet.
-				(2) Extra filtering may be in effect to respond some packets locally by slave LWIP.
-
-			config ESP_DEFAULT_LWIP_SLAVE
-				bool "Send packet to slave LWIP"
-
-			config ESP_DEFAULT_LWIP_HOST
-				bool "Send packet to host LWIP"
-
-			config ESP_DEFAULT_LWIP_BOTH
-				bool "Send packet to both LWIPs"
-		endchoice
-
-		menu "Host Static Port Forwarding"
-
-			config ESP_HOSTED_HOST_RESERVED_PORTS_CONFIGURED
-				bool "Extra port forwarding to host (static)"
-				default y
-				help
-					Enable static port forwarding to host for specific ports
-
-			config ESP_HOSTED_HOST_RESERVED_TCP_SRC_PORTS
-				depends on ESP_HOSTED_HOST_RESERVED_PORTS_CONFIGURED
-				string "TCP source ports to forward to host (comma separated)"
-				default "22,8554"
-				help
-					Comma separated list of TCP source ports that will be allowed from host (Max 10)
-
-			config ESP_HOSTED_HOST_RESERVED_TCP_DEST_PORTS
-				depends on ESP_HOSTED_HOST_RESERVED_PORTS_CONFIGURED
-				string "TCP destination ports to forward to host (comma separated)"
-				default "22,80,443,8080,8554"
-				help
-					Comma separated list of TCP destination ports that will be forwarded to host (Max 10)
-
-			config ESP_HOSTED_HOST_RESERVED_UDP_SRC_PORTS
-				depends on ESP_HOSTED_HOST_RESERVED_PORTS_CONFIGURED
-				string "UDP source ports to allowed from host (comma separated)"
-				default ""
-				help
-					Comma separated list of UDP source ports that will be forwarded to host (Max 10)
-
-			config ESP_HOSTED_HOST_RESERVED_UDP_DEST_PORTS
-				depends on ESP_HOSTED_HOST_RESERVED_PORTS_CONFIGURED
-				string "UDP destination ports to forward to host (comma separated)"
-				default "53,123"
-				help
-					Comma separated list of UDP destination ports that will be forwarded to host (Max 10)
-		endmenu
-
-		menu "Slave side (local) LWIP port range"
-			config LWIP_TCP_LOCAL_PORT_RANGE_START
-				int "Slave TCP start port"
-				default 61440
-				help
-					Slave side TCP start port. Host defaults to 49152
-					Slave range: 61440-65535
-					Host range: 49152-61439
-
-			config LWIP_TCP_LOCAL_PORT_RANGE_END
-				int "Slave TCP end port"
-				default 65535
-				help
-					Slave side TCP end port. Host defaults to 61439
-					Slave range: 61440-65535
-					Host range: 49152-61439
-
-			config LWIP_UDP_LOCAL_PORT_RANGE_START
-				int "Slave UDP start port"
-				default 61440
-				help
-					Slave side UDP start port. Host defaults to 49152
-					Slave range: 61440-65535
-					Host range: 49152-61439
-
-			config LWIP_UDP_LOCAL_PORT_RANGE_END
-				int "Slave UDP end port"
-				default 65535
-				help
-					Slave side UDP end port. Host defaults to 61439
-					Slave range: 61440-65535
-					Host range: 49152-61439
-		endmenu
-
-		menu "Host side (remote) LWIP port range"
-			config LWIP_TCP_REMOTE_PORT_RANGE_START
-				int "Host TCP start port"
-				default 49152
-				help
-					Host side TCP start port. Slave defaults to 61440
-					Slave range: 61440-65535
-					Host range: 49152-61439
-
-			config LWIP_TCP_REMOTE_PORT_RANGE_END
-				int "Host TCP end port"
-				default 61439
-				help
-					Host side TCP end port. Slave defaults to 65535
-					Slave range: 61440-65535
-					Host range: 49152-61439
-
-			config LWIP_UDP_REMOTE_PORT_RANGE_START
-				int "Host UDP start port"
-				default 49152
-				help
-					Host side UDP start port. Slave defaults to 61440
-					Slave range: 61440-65535
-					Host range: 49152-61439
-
-			config LWIP_UDP_REMOTE_PORT_RANGE_END
-				int "Host UDP end port"
-				default 61439
-				help
-					Host side UDP end port. Slave defaults to 65535
-					Slave range: 61440-65535
-					Host range: 49152-61439
-		endmenu
-
-	endmenu
 
 	config ESP_HOSTED_HOST_POWER_SAVE_ENABLED
 		bool "Allow host to power save"
@@ -1186,68 +1121,4 @@ menu "Example Configuration"
 		endchoice
 	endmenu
 
-	config ESP_HOSTED_EXTRA_EXAMPLES
-		depends on ESP_HOSTED_NETWORK_SPLIT_ENABLED
-		bool "Additional higher layer examples to run"
-		default n
-		help
-			Extra set of optional examples to run at slave
-
-	menu "Select Examples to run"
-		depends on ESP_HOSTED_EXTRA_EXAMPLES
-
-		config ESP_HOSTED_COPROCESSOR_EXAMPLE_MQTT
-			bool "MQTT client example"
-			default y
-
-		menu "MQTT client config"
-			depends on ESP_HOSTED_COPROCESSOR_EXAMPLE_MQTT
-			choice BROKER_CHOICE
-				prompt "MQTT Broker"
-				default BROKER_HIVEMQ
-
-				config BROKER_ECLIPSEPROJECTS
-					bool "mqtt.eclipseprojects.io"
-				config BROKER_HIVEMQ
-					bool "broker.hivemq.com"
-			endchoice
-
-			config BROKER_URL
-				string
-				default "mqtt://mqtt.eclipseprojects.io" if BROKER_ECLIPSEPROJECTS
-				default "mqtt://broker.hivemq.com" if BROKER_HIVEMQ
-				help
-					URL of the broker to connect to
-
-			config BROKER_URL_FROM_STDIN
-				bool
-				default y if BROKER_URL = "FROM_STDIN"
-
-		endmenu
-
-		config ESP_HOSTED_COPROCESSOR_EXAMPLE_HTTP_CLIENT
-			bool "HTTP client example"
-			default y
-
-		menu "HTTP client config"
-			depends on ESP_HOSTED_COPROCESSOR_EXAMPLE_HTTP_CLIENT
-
-			config HTTP_WEBSERVER
-				string "HTTP webserver to send req"
-				default "example.com"
-
-			config HTTP_WEBSERVER_PORT
-				string "HTTP webserver port"
-				default "80"
-
-			config HTTP_WEBSERVER_PATH
-				string "HTTP webserver path"
-				default "/"
-
-			config HTTP_REQ_DELAY
-				int "Delay after every http request (seconds)"
-				default 10
-
-		endmenu
-	endmenu
 endmenu
