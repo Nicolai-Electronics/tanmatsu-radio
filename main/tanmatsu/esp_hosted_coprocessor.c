@@ -34,11 +34,14 @@
 
 #include <protocomm.h>
 #include "endian.h"
+#include "esp_err.h"
 #include "esp_hosted_cli.h"
 #include "esp_hosted_coprocessor_fw_ver.h"
 #include "esp_mac.h"
 #include "esp_timer.h"
 #include "host_power_save.h"
+#include "lora_protocol.h"
+#include "lora_protocol_server.h"
 #include "mempool.h"
 #include "protocomm_pserial.h"
 #include "slave_bt.h"
@@ -499,6 +502,10 @@ static int host_to_slave_reconfig(uint8_t* evt_buf, uint16_t len) {
     return ESP_OK;
 }
 
+#define ESP_PRIV_EVENT_LORA      0x01
+#define ESP_PRIV_EVENT_BADGELINK 0x02
+#define ESP_PRIV_EVENT_ECHO      0x03
+
 static void process_priv_pkt(uint8_t* payload, uint16_t payload_len) {
     int                    ret = 0;
     struct esp_priv_event* event;
@@ -507,10 +514,11 @@ static void process_priv_pkt(uint8_t* payload, uint16_t payload_len) {
 
     event = (struct esp_priv_event*)payload;
 
-    for (uint16_t i = 0; i < payload_len; i++) {
-        printf("%02X ", payload[i]);
+    printf("Priv event type: %u, len: %u\n", event->event_type, event->event_len);
+    for (uint16_t i = 0; i < event->event_len; i++) {
+        printf("%02X ", event->event_data[i]);
     }
-    printf("\n");
+    printf("\r\n");
 
     if (event->event_type == ESP_PRIV_EVENT_INIT) {
 
@@ -521,8 +529,16 @@ static void process_priv_pkt(uint8_t* payload, uint16_t payload_len) {
         if (ret) {
             ESP_LOGE(TAG, "failed to init event\n\r");
         }
-    } else if (event->event_type == 0x01) {
-        printf("Test string: \"%s\"\r\n", event->event_data);
+    } else if (event->event_type == ESP_PRIV_EVENT_LORA) {
+        esp_err_t res = lora_protocol_handle_packet(event->event_data, event->event_len);
+        if (res != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to handle LoRa protocol packet (%d) %s\r\n", res, esp_err_to_name(res));
+        }
+    } else if (event->event_type == ESP_PRIV_EVENT_BADGELINK) {
+        ESP_LOGI(TAG, "BadgeLink event received from host, len: %u", event->event_len);
+    } else if (event->event_type == ESP_PRIV_EVENT_ECHO) {
+        ESP_LOGI(TAG, "Echo event received from host, len: %u", event->event_len);
+        generate_custom_event(ESP_PRIV_EVENT_ECHO, event->event_data, event->event_len);
     } else {
         ESP_LOGW(TAG, "Drop unknown event\n\r");
     }

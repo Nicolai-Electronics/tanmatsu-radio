@@ -317,6 +317,68 @@ void generate_startup_event(uint8_t cap, uint32_t ext_cap)
 
 }
 
+void generate_custom_event(uint8_t type, uint8_t* payload, uint16_t payload_length)
+{
+	if (payload_length > 512 - sizeof(struct esp_payload_header)) {
+		ESP_LOGE(TAG, "Custom event payload too large: %u > %u", payload_length, 512 - sizeof(struct esp_payload_header));
+		return;
+	}
+	struct esp_payload_header *header = NULL;
+	interface_buffer_handle_t buf_handle = {0};
+	struct esp_priv_event *event = NULL;
+	uint8_t *pos = NULL;
+	uint8_t raw_tp_cap = 0;
+	esp_err_t ret = ESP_OK;
+
+	raw_tp_cap = debug_get_raw_tp_conf();
+
+	memset(&buf_handle, 0, sizeof(buf_handle));
+
+	buf_handle.payload = sdio_buffer_tx_alloc(512, MEMSET_REQUIRED);
+	assert(buf_handle.payload);
+
+	header = (struct esp_payload_header *) buf_handle.payload;
+
+	header->if_type = ESP_PRIV_IF;
+	header->if_num = 0;
+	header->offset = htole16(sizeof(struct esp_payload_header));
+	header->priv_pkt_type = ESP_PACKET_TYPE_EVENT;
+	UPDATE_HEADER_TX_PKT_NO(header);
+
+	/* Populate event data */
+	event = (struct esp_priv_event *) (buf_handle.payload + sizeof(struct esp_payload_header));
+	event->event_type = type;
+	event->event_len = payload_length;
+	memcpy(event->event_data, payload, payload_length);
+
+	uint16_t len = payload_length + sizeof(struct esp_priv_event);
+	header->len = htole16(len);
+
+	buf_handle.payload_len = len + sizeof(struct esp_payload_header);
+#if CONFIG_ESP_SDIO_CHECKSUM
+	header->checksum = htole16(compute_checksum(buf_handle.payload, buf_handle.payload_len));
+#endif
+
+	ESP_HEXLOGV("bus_tx_init", buf_handle.payload, buf_handle.payload_len, 32);
+
+#if !SIMPLIFIED_SDIO_SLAVE
+	xSemaphoreTake(sdio_send_queue_sem, portMAX_DELAY);
+	ret = sdio_slave_send_queue(buf_handle.payload, buf_handle.payload_len,
+			buf_handle.payload, portMAX_DELAY);
+#else
+	ret = sdio_slave_transmit(buf_handle.payload, buf_handle.payload_len);
+#endif
+	if (ret != ESP_OK) {
+		ESP_LOGE(TAG , "sdio slave tx error, ret : 0x%x\r\n", ret);
+		sdio_buffer_tx_free(buf_handle.payload);
+		return;
+	}
+#if SIMPLIFIED_SDIO_SLAVE
+	sdio_buffer_tx_free(buf_handle.payload);
+#endif
+
+}
+
 static void sdio_read_done(void *handle)
 {
 	ESP_LOGV(TAG, "sdio_read_done, reloading buf");
