@@ -12,6 +12,7 @@
 #define BSP_LORA_DIO1  4
 #define BSP_LORA_BUSY  5
 #define BSP_LORA_RESET 10
+#define BSP_LORA_BUS   SPI2_HOST
 
 // I2C bus pins
 #define BSP_I2C_SDA 6
