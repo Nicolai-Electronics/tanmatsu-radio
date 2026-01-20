@@ -30,6 +30,7 @@
 
 #include <protocomm.h>
 #include "driver/i2c_master.h"
+#include "driver/rmt_tx.h"
 #include "driver/spi_master.h"
 #include "endian.h"
 #include "esp_err.h"
@@ -39,6 +40,7 @@
 #include "esp_timer.h"
 #include "hal/i2c_hal.h"
 #include "host_power_save.h"
+#include "ir_nec_encoder.h"
 #include "lora_protocol.h"
 #include "lora_protocol_server.h"
 #include "mempool.h"
@@ -1119,4 +1121,72 @@ void app_main(void) {
     esp_hosted_coprocessor_init();
 
     // i2c_master_test();
+
+    /*gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << BSP_IR_TX),
+        .mode         = GPIO_MODE_OUTPUT,
+    };
+    gpio_config(&io_conf);
+
+    while (1) {
+        gpio_set_level(BSP_IR_TX, 1);
+        vTaskDelay(pdMS_TO_TICKS(100));
+        gpio_set_level(BSP_IR_TX, 0);
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }*/
+
+    ESP_LOGI(TAG, "create RMT TX channel");
+    rmt_tx_channel_config_t tx_channel_cfg = {
+        .clk_src           = RMT_CLK_SRC_DEFAULT,
+        .resolution_hz     = 1000000,  // 1MHz, 1 tick = 1us
+        .mem_block_symbols = 64,       // amount of RMT symbols that the channel can store at a time
+        .trans_queue_depth = 4,  // number of transactions that allowed to pending in the background, this example won't
+                                 // queue multiple transactions, so queue depth > 1 is sufficient
+        .gpio_num          = BSP_IR_TX,
+    };
+    rmt_channel_handle_t tx_channel = NULL;
+    ESP_ERROR_CHECK(rmt_new_tx_channel(&tx_channel_cfg, &tx_channel));
+
+    ESP_LOGI(TAG, "modulate carrier to TX channel");
+    rmt_carrier_config_t carrier_cfg = {
+        .duty_cycle   = 0.33,
+        .frequency_hz = 38000,  // 38KHz
+    };
+    ESP_ERROR_CHECK(rmt_apply_carrier(tx_channel, &carrier_cfg));
+
+    // this example won't send NEC frames in a loop
+    rmt_transmit_config_t transmit_config = {
+        .loop_count = 0,  // no loop
+    };
+
+    ESP_LOGI(TAG, "install IR NEC encoder");
+    ir_nec_encoder_config_t nec_encoder_cfg = {
+        .resolution = 1000000,  // 1MHz, 1 tick = 1us
+    };
+    rmt_encoder_handle_t nec_encoder = NULL;
+    ESP_ERROR_CHECK(rmt_new_ir_nec_encoder(&nec_encoder_cfg, &nec_encoder));
+
+    ESP_LOGI(TAG, "enable RMT TX and RX channels");
+    ESP_ERROR_CHECK(rmt_enable(tx_channel));
+
+    /*while (1) {
+        const ir_nec_scan_code_t scan_code1 = {
+            .address = 0xD5D5,
+            .command = 0xF708,
+        };
+        ESP_ERROR_CHECK(rmt_transmit(tx_channel, nec_encoder, &scan_code1, sizeof(scan_code1), &transmit_config));
+        vTaskDelay(pdMS_TO_TICKS(500));
+        const ir_nec_scan_code_t scan_code2 = {
+            .address = 0xD5D5,
+            .command = 0xE718,
+        };
+        ESP_ERROR_CHECK(rmt_transmit(tx_channel, nec_encoder, &scan_code2, sizeof(scan_code2), &transmit_config));
+        vTaskDelay(pdMS_TO_TICKS(500));
+        const ir_nec_scan_code_t scan_code3 = {
+            .address = 0xD5D5,
+            .command = 0x9F60,
+        };
+        ESP_ERROR_CHECK(rmt_transmit(tx_channel, nec_encoder, &scan_code3, sizeof(scan_code3), &transmit_config));
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }*/
 }
