@@ -65,6 +65,7 @@ set(tanmatsu_dir "tanmatsu")
 list(REMOVE_ITEM COMPONENT_SRCS "esp_hosted_coprocessor.c")
 list(APPEND COMPONENT_SRCS "${tanmatsu_dir}/esp_hosted_coprocessor.c")
 list(APPEND COMPONENT_SRCS "${tanmatsu_dir}/lora_protocol_server.c")
+list(APPEND COMPONENT_SRCS "${tanmatsu_dir}/ir_nec_encoder.c")
 list(APPEND COMPONENT_ADD_INCLUDEDIRS "${tanmatsu_dir}")
 list(APPEND COMPONENT_REQUIRES sx126x)
 
