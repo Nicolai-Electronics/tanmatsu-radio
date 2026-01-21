@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include <stdbool.h>
 
 #define LORA_PROTOCOL_VERSION_STRING_LENGTH 16
 
