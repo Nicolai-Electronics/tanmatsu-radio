@@ -121,7 +121,6 @@ static esp_err_t apply_config(uint8_t* config_data, size_t config_length) {
 
     lora_protocol_config_params_t* config_params = (lora_protocol_config_params_t*)config_data;
 
-    // Here you would add code to apply the configuration to the LoRa module
     ESP_LOGI(TAG, "Applying LoRa configuration: Frequency=%.2f MHz, SF=%d, BW=%d kHz", config_params->frequency,
              config_params->spreading_factor, config_params->bandwidth);
 
@@ -295,7 +294,18 @@ static void send_status(uint32_t sequence_number) {
     // For demonstration purposes, we fill in some dummy status values
     status_params->errors    = 0;
     status_params->chip_type = LORA_PROTOCOL_CHIP_SX1262;
-    snprintf(status_params->version_string, LORA_PROTOCOL_VERSION_STRING_LENGTH, "FIXME");
+    esp_err_t res =
+        sx126x_read_version_string(&lora_handle, status_params->version_string, LORA_PROTOCOL_VERSION_STRING_LENGTH);
+
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read LoRa version string: %s", esp_err_to_name(res));
+        snprintf(status_params->version_string, LORA_PROTOCOL_VERSION_STRING_LENGTH, "UNKNOWN");
+        return;
+    }
+
+    if (memcmp(status_params->version_string, "SX1268", strlen("SX1268")) == 0) {
+        status_params->chip_type = LORA_PROTOCOL_CHIP_SX1268;
+    }
 
     size_t status_length = sizeof(lora_protocol_header_t) + sizeof(lora_protocol_status_params_t);
     generate_custom_event(ESP_PRIV_EVENT_LORA, reply_buffer, status_length);
