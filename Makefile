@@ -47,6 +47,10 @@ sdk:
 	cd "$(IDF_PATH)"; git submodule update --init --recursive
 	cd "$(IDF_PATH)"; bash install.sh all
 
+.PHONY: reinstallsdk
+reinstallsdk:
+	cd "$(IDF_PATH)"; bash install.sh all
+
 .PHONY: removesdk
 removesdk:
 	rm -rf "$(IDF_PATH)"

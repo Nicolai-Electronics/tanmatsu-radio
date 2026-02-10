@@ -122,7 +122,7 @@ static esp_err_t apply_config(uint8_t* config_data, size_t config_length) {
     lora_protocol_config_params_t* config_params = (lora_protocol_config_params_t*)config_data;
 
     // Here you would add code to apply the configuration to the LoRa module
-    ESP_LOGI(TAG, "Applying LoRa configuration: Frequency=%.2f MHz, SF=%d, BW=%d kHz", config_params->frequency,
+    ESP_LOGI(TAG, "Applying LoRa configuration: Frequency= %" PRIu32 "Hz, SF=%d, BW=%d kHz", config_params->frequency,
              config_params->spreading_factor, config_params->bandwidth);
 
     memcpy(&current_config, config_params, sizeof(lora_protocol_config_params_t));
