@@ -22,4 +22,4 @@ dependencies:
   esp-qa/ping-cmd:
     version: "~1.0.0"
   nicolaielectronics/sx126x:
-    version: "~0.0.2"
+    version: "~0.0.3"

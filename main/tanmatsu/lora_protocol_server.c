@@ -91,9 +91,10 @@ esp_err_t apply_mode(uint8_t* mode_data, size_t mode_length) {
         case LORA_PROTOCOL_MODE_FS:
             return sx126x_set_op_mode_fs(&lora_handle);
         case LORA_PROTOCOL_MODE_TX:
-            return sx126x_set_op_mode_tx(&lora_handle);
+            ESP_LOGE(TAG, "Can not set TX mode directly, host must send data to transmit");
+            return ESP_ERR_INVALID_ARG;
         case LORA_PROTOCOL_MODE_RX:
-            return sx126x_set_op_mode_rx(&lora_handle);
+            return sx126x_set_op_mode_rx(&lora_handle, 0);
         default:
             ESP_LOGW(TAG, "Unknown LoRa mode requested: %d", mode_params->mode);
             return ESP_ERR_INVALID_ARG;
@@ -311,32 +312,107 @@ static void send_status(uint32_t sequence_number) {
     generate_custom_event(ESP_PRIV_EVENT_LORA, reply_buffer, status_length);
 }
 
-static void send_packet(uint32_t sequence_number) {
-    lora_protocol_header_t* packet = (lora_protocol_header_t*)reply_buffer;
-    packet->sequence_number        = sequence_number;
-    packet->type                   = LORA_PROTOCOL_TYPE_PACKET_RX;
-    lora_protocol_lora_packet_t* lora_packet =
-        (lora_protocol_lora_packet_t*)(reply_buffer + sizeof(lora_protocol_header_t));
-
-    // For demonstration purposes, we fill in some dummy packet data
-    const char* demo_data = "Hello, LoRa!";
-    lora_packet->length   = strlen(demo_data);
-    memcpy(lora_packet->data, demo_data, lora_packet->length);
-
-    size_t packet_length = sizeof(lora_protocol_header_t) + sizeof(uint8_t) + lora_packet->length;
-    generate_custom_event(ESP_PRIV_EVENT_LORA, reply_buffer, packet_length);
-}
-
 static esp_err_t transmit_packet(uint8_t* packet_data, size_t packet_length) {
-    if (packet_length < sizeof(lora_protocol_lora_packet_t)) {
-        ESP_LOGW(TAG, "PACKET_TX command received with insufficient data length: %zu bytes", packet_length);
+    ESP_LOGI(TAG, "Transmitting LoRa packet of length %d", packet_length);
+    printf("Data to transmit: ");
+    for (uint8_t i = 0; i < packet_length; i++) {
+        printf("%02X ", packet_data[i]);
+    }
+    printf("\r\n");
+
+    // Check packet size limits
+    if (current_config.coding_rate > 4 && packet_length < 8) {
+        ESP_LOGW(TAG, "Packet length %d is too short for coding rate 8/%d, minimum is 8 bytes", packet_length,
+                 current_config.coding_rate);
         return ESP_ERR_INVALID_SIZE;
     }
 
-    lora_protocol_lora_packet_t* lora_packet = (lora_protocol_lora_packet_t*)packet_data;
+    if (current_config.crc_enabled && packet_length > 253) {
+        ESP_LOGW(TAG, "Packet length %d is too long to include CRC when CRC is enabled, maximum is 253 bytes",
+                 packet_length);
+        return ESP_ERR_INVALID_SIZE;
+    }
 
-    // Here you would add code to transmit the packet via the LoRa module
-    ESP_LOGI(TAG, "Transmitting LoRa packet of length %d", lora_packet->length);
+    if (packet_length > 255) {
+        ESP_LOGW(TAG, "Packet length %d exceeds maximum of 255 bytes", packet_length);
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    // Read current mode to restore RX mode after transmission if needed
+    uint8_t   chip_mode = 0;
+    esp_err_t res       = sx126x_get_status(&lora_handle, NULL, &chip_mode);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get LoRa chip mode: %s", esp_err_to_name(res));
+        return res;
+    }
+
+    // Stop receiving, leave oscillator on
+    res = sx126x_set_op_mode_standby(&lora_handle, true);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set LoRa to standby mode before transmission: %s", esp_err_to_name(res));
+        return res;
+    }
+
+    // Set packet type to LoRa
+    res = sx126x_set_packet_type(&lora_handle, SX126X_PACKET_TYPE_LORA);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set packet type to LoRa: %s", esp_err_to_name(res));
+        return res;
+    }
+
+    // Set packet parameters
+    res = sx126x_set_packet_params_lora(&lora_handle, current_config.preamble_length, true, packet_length,
+                                        current_config.crc_enabled, current_config.invert_iq);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set LoRa packet parameters for transmission: %s", esp_err_to_name(res));
+        return res;
+    }
+
+    // Set buffer base address
+    res = sx126x_set_buffer_base_address(&lora_handle, 0x00, 0x00);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set LoRa buffer base address: %s", esp_err_to_name(res));
+        return res;
+    }
+
+    // Write packet data to buffer
+    res = sx126x_write_buffer(&lora_handle, 0x00, packet_data, packet_length);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to write packet data to LoRa buffer: %s", esp_err_to_name(res));
+        return res;
+    }
+
+    // Start transmit (waits for busy to clear)
+    res = sx126x_set_op_mode_tx(&lora_handle, 0);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set LoRa to TX mode: %s", esp_err_to_name(res));
+        return res;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(500));
+
+    // Restore packet parameters for receiving
+    res = sx126x_set_packet_params_lora_variable_length(&lora_handle, current_config.preamble_length,
+                                                        current_config.crc_enabled, current_config.invert_iq);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to restore LoRa packet parameters after transmission: %s", esp_err_to_name(res));
+        return res;
+    }
+
+    // Restore chip mode (RX or standby)
+    if (chip_mode == SX126X_CHIP_MODE_RX) {
+        res = sx126x_set_op_mode_rx(&lora_handle, 0);
+        if (res != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to restore LoRa RX mode after transmission: %s", esp_err_to_name(res));
+            return res;
+        }
+    } else {
+        res = sx126x_set_op_mode_standby(&lora_handle, false);
+        if (res != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to restore LoRa standby mode after transmission: %s", esp_err_to_name(res));
+            return res;
+        }
+    }
 
     return ESP_OK;
 }
@@ -384,7 +460,7 @@ void lora_protocol_handle_packet(uint8_t* request_buffer, size_t request_length)
             send_status(packet->sequence_number);
             break;
         case LORA_PROTOCOL_TYPE_PACKET_RX:
-            send_packet(packet->sequence_number);
+            send_nack(packet->sequence_number);  // We don't expect to receive this from the host, so we NACK it
             break;
         case LORA_PROTOCOL_TYPE_PACKET_TX:
             if (transmit_packet(request_buffer + sizeof(lora_protocol_header_t),
@@ -614,8 +690,8 @@ void lora_task(void* pvParameters) {
     res = lora_initialize();
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "LoRa initialization failed: %s", esp_err_to_name(res));
-        vTaskDelete(NULL);
-        return;
+        vTaskDelay(pdMS_TO_TICKS(2000));
+        esp_restart();
     }
 
     ESP_LOGI(TAG, "LoRa task started");
@@ -632,7 +708,7 @@ void lora_task(void* pvParameters) {
         res                     = sx126x_get_irq_status(&lora_handle, &interrupts, &command_status, &chip_mode);
         if (res != ESP_OK) {
             ESP_LOGE(TAG, "Failed to get LoRa IRQ status: %s", esp_err_to_name(res));
-            return;
+            continue;
         }
 
         if (interrupts & SX126X_IRQ_TX_DONE) printf("Interrupt: TX done\r\n");
@@ -650,7 +726,7 @@ void lora_task(void* pvParameters) {
         res = sx126x_clear_irq_status(&lora_handle, SX126X_IRQ_ALL);
         if (res != ESP_OK) {
             ESP_LOGE(TAG, "Failed to clear LoRa radio IRQ status: %s", esp_err_to_name(res));
-            return;
+            continue;
         }
 
         switch (command_status) {
@@ -658,10 +734,14 @@ void lora_task(void* pvParameters) {
                 printf("Data available!\r\n");
                 read_data();
 
-                res = sx126x_set_op_mode_rx(&lora_handle);
-                if (res != ESP_OK) {
-                    ESP_LOGE(TAG, "Failed to set LoRa radio to RX mode: %s", esp_err_to_name(res));
-                    return;
+                while (1) {
+                    res = sx126x_set_op_mode_rx(&lora_handle, 0);
+                    if (res != ESP_OK) {
+                        ESP_LOGE(TAG, "Failed to set LoRa radio to RX mode: %s", esp_err_to_name(res));
+                        vTaskDelay(pdMS_TO_TICKS(1000));
+                    } else {
+                        break;
+                    }
                 }
                 break;
             case SX126X_COMMAND_STATUS_TIMEOUT:
@@ -704,7 +784,7 @@ void lora_task(void* pvParameters) {
         res             = sx126x_get_device_errors(&lora_handle, &errors);
         if (res != ESP_OK) {
             ESP_LOGE(TAG, "Failed to get LoRa radio device errors: %s", esp_err_to_name(res));
-            return;
+            continue;
         }
 
         if (errors != 0) {
@@ -718,7 +798,8 @@ void lora_task(void* pvParameters) {
             if (errors & SX126X_XOSC_START_ERR) ESP_LOGE(TAG, "XOSC start error");
             if (errors & SX126X_PLL_LOCK_ERR) ESP_LOGE(TAG, "PLL lock error");
             if (errors & SX126X_PA_RAMP_ERR) ESP_LOGE(TAG, "PA ramp error");
-            return;
+
+            continue;
         }
     }
 
