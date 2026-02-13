@@ -292,9 +292,6 @@ static void send_status(uint32_t sequence_number) {
     lora_protocol_status_params_t* status_params =
         (lora_protocol_status_params_t*)(reply_buffer + sizeof(lora_protocol_header_t));
 
-    // For demonstration purposes, we fill in some dummy status values
-    status_params->errors    = 0;
-    status_params->chip_type = LORA_PROTOCOL_CHIP_SX1262;
     esp_err_t res =
         sx126x_read_version_string(&lora_handle, status_params->version_string, LORA_PROTOCOL_VERSION_STRING_LENGTH);
 
@@ -306,6 +303,14 @@ static void send_status(uint32_t sequence_number) {
 
     if (memcmp(status_params->version_string, "SX1268", strlen("SX1268")) == 0) {
         status_params->chip_type = LORA_PROTOCOL_CHIP_SX1268;
+    } else {
+        status_params->chip_type = LORA_PROTOCOL_CHIP_SX1262;
+    }
+
+    res = sx126x_get_device_errors(&lora_handle, &status_params->errors);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to get LoRa radio device errors: %s", esp_err_to_name(res));
+        return;
     }
 
     size_t status_length = sizeof(lora_protocol_header_t) + sizeof(lora_protocol_status_params_t);
@@ -481,12 +486,6 @@ void lora_protocol_handle_packet(uint8_t* request_buffer, size_t request_length)
 
 esp_err_t lora_initialize(void) {
     esp_err_t res;
-
-    res = sx126x_init(&lora_handle, BSP_LORA_BUS, BSP_LORA_CS, BSP_LORA_RESET, BSP_LORA_DIO1, BSP_LORA_BUSY);
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize LoRa radio: %s", esp_err_to_name(res));
-        return res;
-    }
 
     res = sx126x_set_op_mode_standby(&lora_handle, false);
     if (res != ESP_OK) {
@@ -687,11 +686,20 @@ void read_data(void) {
 void lora_task(void* pvParameters) {
     esp_err_t res;
 
+    res = sx126x_init(&lora_handle, BSP_LORA_BUS, BSP_LORA_CS, BSP_LORA_RESET, BSP_LORA_DIO1, BSP_LORA_BUSY);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize LoRa driver: %s", esp_err_to_name(res));
+        vTaskDelete(NULL);
+    }
+
     res = lora_initialize();
     if (res != ESP_OK) {
-        ESP_LOGE(TAG, "LoRa initialization failed: %s", esp_err_to_name(res));
-        vTaskDelay(pdMS_TO_TICKS(2000));
-        esp_restart();
+        ESP_LOGE(TAG, "LoRa radio startup failed: %s", esp_err_to_name(res));
+        while (1) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            res = lora_initialize();
+            ESP_LOGE(TAG, "[retry] LoRa radio startup failed: %s", esp_err_to_name(res));
+        }
     }
 
     ESP_LOGI(TAG, "LoRa task started");
