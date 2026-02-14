@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include "esp_err.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "interface.h"
 #include "lora_protocol.h"
 #include "priv_events.h"
@@ -15,6 +17,7 @@ static const char*                   TAG         = "lora";
 static sx126x_handle_t               lora_handle = {0};
 static uint8_t                       reply_buffer[512];
 static lora_protocol_config_params_t current_config = {0};
+static SemaphoreHandle_t             tx_semaphore   = NULL;
 
 static void send_nack(uint32_t sequence_number) {
     lora_protocol_header_t* nack_packet = (lora_protocol_header_t*)reply_buffer;
@@ -307,11 +310,13 @@ static void send_status(uint32_t sequence_number) {
         status_params->chip_type = LORA_PROTOCOL_CHIP_SX1262;
     }
 
-    res = sx126x_get_device_errors(&lora_handle, &status_params->errors);
+    uint16_t errors = 0;
+    res             = sx126x_get_device_errors(&lora_handle, &errors);
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Failed to get LoRa radio device errors: %s", esp_err_to_name(res));
         return;
     }
+    status_params->errors = errors;
 
     size_t status_length = sizeof(lora_protocol_header_t) + sizeof(lora_protocol_status_params_t);
     generate_custom_event(ESP_PRIV_EVENT_LORA, reply_buffer, status_length);
@@ -319,11 +324,6 @@ static void send_status(uint32_t sequence_number) {
 
 static esp_err_t transmit_packet(uint8_t* packet_data, size_t packet_length) {
     ESP_LOGI(TAG, "Transmitting LoRa packet of length %d", packet_length);
-    printf("Data to transmit: ");
-    for (uint8_t i = 0; i < packet_length; i++) {
-        printf("%02X ", packet_data[i]);
-    }
-    printf("\r\n");
 
     // Check packet size limits
     if (current_config.coding_rate > 4 && packet_length < 8) {
@@ -352,7 +352,7 @@ static esp_err_t transmit_packet(uint8_t* packet_data, size_t packet_length) {
     }
 
     // Stop receiving, leave oscillator on
-    res = sx126x_set_op_mode_standby(&lora_handle, true);
+    res = sx126x_set_op_mode_standby(&lora_handle, false);
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set LoRa to standby mode before transmission: %s", esp_err_to_name(res));
         return res;
@@ -362,14 +362,6 @@ static esp_err_t transmit_packet(uint8_t* packet_data, size_t packet_length) {
     res = sx126x_set_packet_type(&lora_handle, SX126X_PACKET_TYPE_LORA);
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set packet type to LoRa: %s", esp_err_to_name(res));
-        return res;
-    }
-
-    // Set packet parameters
-    res = sx126x_set_packet_params_lora(&lora_handle, current_config.preamble_length, true, packet_length,
-                                        current_config.crc_enabled, current_config.invert_iq);
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to set LoRa packet parameters for transmission: %s", esp_err_to_name(res));
         return res;
     }
 
@@ -387,14 +379,29 @@ static esp_err_t transmit_packet(uint8_t* packet_data, size_t packet_length) {
         return res;
     }
 
-    // Start transmit (waits for busy to clear)
+    // Set packet parameters
+    res = sx126x_set_packet_params_lora(&lora_handle, current_config.preamble_length, false, packet_length,
+                                        current_config.crc_enabled, current_config.invert_iq);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set LoRa packet parameters for transmission: %s", esp_err_to_name(res));
+        return res;
+    }
+
+    // Clear TX done semaphore before starting transmission
+    xSemaphoreTake(tx_semaphore, 0);
+
+    // Start transmit
     res = sx126x_set_op_mode_tx(&lora_handle, 0);
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set LoRa to TX mode: %s", esp_err_to_name(res));
         return res;
     }
 
-    vTaskDelay(pdMS_TO_TICKS(500));
+    // Wait for transmission to complete (wait for TX_DONE event)
+    if (xSemaphoreTake(tx_semaphore, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        ESP_LOGE(TAG, "Timeout waiting for LoRa transmission to complete");
+        return ESP_ERR_TIMEOUT;
+    }
 
     // Restore packet parameters for receiving
     res = sx126x_set_packet_params_lora_variable_length(&lora_handle, current_config.preamble_length,
@@ -423,12 +430,6 @@ static esp_err_t transmit_packet(uint8_t* packet_data, size_t packet_length) {
 }
 
 void lora_protocol_handle_packet(uint8_t* request_buffer, size_t request_length) {
-    printf("LoRa command: ");
-    for (size_t i = 0; i < request_length; i++) {
-        printf("%02X ", request_buffer[i]);
-    }
-    printf("\r\n");
-
     if (request_length < sizeof(lora_protocol_header_t)) {
         ESP_LOGW(TAG, "Received LoRa protocol packet is too short: %zu bytes", request_length);
         send_nack(0);
@@ -486,6 +487,12 @@ void lora_protocol_handle_packet(uint8_t* request_buffer, size_t request_length)
 
 esp_err_t lora_initialize(void) {
     esp_err_t res;
+
+    tx_semaphore = xSemaphoreCreateBinary();
+    if (tx_semaphore == NULL) {
+        ESP_LOGE(TAG, "Failed to create TX semaphore");
+        return ESP_ERR_NO_MEM;
+    }
 
     res = sx126x_set_op_mode_standby(&lora_handle, false);
     if (res != ESP_OK) {
@@ -562,7 +569,7 @@ esp_err_t lora_initialize(void) {
     }
 
     while (sx126x_is_busy(&lora_handle)) {
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(100));
         ESP_LOGI(TAG, "Waiting for LoRa radio to be calibrated...");
     }
 
@@ -643,6 +650,20 @@ esp_err_t lora_initialize(void) {
         return res;
     }
 
+    // TxClampConfig workaround from datasheet
+    uint8_t temp = 0;
+    res          = sx126x_read_register(&lora_handle, 0x08D8, &temp, 1);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read LoRa TxClampConfig register: %s", esp_err_to_name(res));
+        return res;
+    }
+    temp |= 0x1E;
+    res   = sx126x_write_register(&lora_handle, 0x08D8, &temp, 1);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to write LoRa TxClampConfig register: %s", esp_err_to_name(res));
+        return res;
+    }
+
     ESP_LOGI(TAG, "LoRa chip initialized (%s with %s)", version_string, tcxo_detected ? "TCXO" : "XOSC");
 
     return ESP_OK;
@@ -692,6 +713,8 @@ void lora_task(void* pvParameters) {
         vTaskDelete(NULL);
     }
 
+    lora_handle.timeout = pdMS_TO_TICKS(2500);
+
     res = lora_initialize();
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "LoRa radio startup failed: %s", esp_err_to_name(res));
@@ -719,8 +742,8 @@ void lora_task(void* pvParameters) {
             continue;
         }
 
-        if (interrupts & SX126X_IRQ_TX_DONE) printf("Interrupt: TX done\r\n");
-        if (interrupts & SX126X_IRQ_RX_DONE) printf("Interrupt: RX done\r\n");
+        // if (interrupts & SX126X_IRQ_TX_DONE) printf("Interrupt: TX done\r\n");
+        // if (interrupts & SX126X_IRQ_RX_DONE) printf("Interrupt: RX done\r\n");
         if (interrupts & SX126X_IRQ_PREAMBLE_DETECTED) printf("Interrupt: preamble detected\r\n");
         if (interrupts & SX126X_IRQ_SYNC_WORD_VALID) printf("Interrupt: sync word valid\r\n");
         if (interrupts & SX126X_IRQ_HEADER_VALID) printf("Interrupt: header valid\r\n");
@@ -762,13 +785,13 @@ void lora_task(void* pvParameters) {
                 printf("Operation failed!\r\n");
                 break;
             case SX126X_COMMAND_STATUS_TX_DONE:
-                printf("Transmission done!\r\n");
+                xSemaphoreGive(tx_semaphore);
                 break;
             default:
                 break;
         }
 
-        switch (chip_mode) {
+        /*switch (chip_mode) {
             case SX126X_CHIP_MODE_STDBY_RC:
                 printf("Chip in STDBY_RC mode\r\n");
                 break;
@@ -786,6 +809,10 @@ void lora_task(void* pvParameters) {
                 break;
             default:
                 break;
+        }*/
+
+        while (sx126x_is_busy(&lora_handle)) {
+            vTaskDelay(pdMS_TO_TICKS(100));
         }
 
         uint16_t errors = 0;
