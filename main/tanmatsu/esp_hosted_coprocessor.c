@@ -513,11 +513,11 @@ static void process_priv_pkt(uint8_t* payload, uint16_t payload_len) {
 
     event = (struct esp_priv_event*)payload;
 
-    printf("Priv event type: %u, len: %u\n", event->event_type, event->event_len);
+    /*printf("Priv event type: %u, len: %u\n", event->event_type, event->event_len);
     for (uint16_t i = 0; i < event->event_len; i++) {
         printf("%02X ", event->event_data[i]);
     }
-    printf("\r\n");
+    printf("\r\n");*/
 
     if (event->event_type == ESP_PRIV_EVENT_INIT) {
 
