@@ -8,6 +8,8 @@ Based on [esp-hosted-mcu](https://github.com/espressif/esp-hosted-mcu/) commit 3
 
 ## Authors
 
+Copyright 2026 Nicolai Electronics
+
 Copyright 2021-2024 Espressif Systems (Shanghai) CO LTD
 
 License: [Apache-2.0](LICENSE)
