@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Nicolai Electronics
+// SPDX-License-Identifier: MIT
+
 #include "lora_protocol_server.h"
 #include <stddef.h>
 #include <stdio.h>
