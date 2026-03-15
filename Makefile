@@ -93,7 +93,11 @@ checkbuildenv:
 
 .PHONY: build
 build: checkbuildenv submodules
-	source "$(IDF_PATH)/export.sh" >/dev/null && idf.py -B $(BUILD) build -DDEVICE=$(DEVICE)
+	source "$(IDF_PATH)/export.sh" >/dev/null && idf.py -B $(BUILD) -DDEVICE=$(DEVICE) build
+
+.PHONY: merge
+merge: build
+	source "$(IDF_PATH)/export.sh" >/dev/null && idf.py -B $(BUILD) -DDEVICE=$(DEVICE) merge-bin
 
 # Hardware
 
@@ -145,10 +149,6 @@ size-components:
 size-files:
 	source "$(IDF_PATH)/export.sh" && idf.py -B $(BUILD) size-files
 
-.PHONY: merge
-merge:
-	python -m esptool --chip esp32c6 merge_bin -o build/merged.bin --flash_size 8MB --flash_freq 80m 0x0 build/tanmatsu/bootloader/bootloader.bin 0x8000 build/tanmatsu/partition_table/partition-table.bin 0xd000 build/tanmatsu/ota_data_initial.bin 0x10000 build/tanmatsu/tanmatsu-radio.bin
-
 # Formatting
 
 .PHONY: format
@@ -160,3 +160,7 @@ format:
 distrib:
 	python generate_instructions.py
 
+
+.PHONY: oldmerge
+oldmerge:
+	python -m esptool --chip esp32c6 merge_bin -o build/merged.bin --flash_size 8MB --flash_freq 80m 0x0 build/tanmatsu/bootloader/bootloader.bin 0x8000 build/tanmatsu/partition_table/partition-table.bin 0xd000 build/tanmatsu/ota_data_initial.bin 0x10000 build/tanmatsu/tanmatsu-radio.bin
