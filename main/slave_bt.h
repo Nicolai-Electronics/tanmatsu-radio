@@ -1,19 +1,9 @@
-// SPDX-License-Identifier: Apache-2.0
-// Copyright 2015-2021 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
+/*
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-//
-//
 #ifndef __SLAVE_BT_H__
 #define __SLAVE_BT_H__
 
@@ -21,7 +11,11 @@
 #include "esp_idf_version.h"
 #include <stdbool.h>
 
-#ifdef CONFIG_BT_ENABLED
+#if defined(CONFIG_ESP_HOSTED_CP_BT) && (!defined(CONFIG_BT_ENABLED) || !defined(CONFIG_SOC_BT_SUPPORTED))
+#error "CONFIG_ESP_HOSTED_CP_BT is enabled but CONFIG_BT_ENABLED or CONFIG_SOC_BT_SUPPORTED is not enabled. Please enable BT support in menuconfig."
+#endif
+
+#ifdef CONFIG_ESP_HOSTED_CP_BT
 
 #if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
   #include "driver/periph_ctrl.h"
@@ -160,7 +154,7 @@
   void process_hci_rx_pkt(uint8_t *payload, uint16_t payload_len);
 #endif
 
-#endif /* CONFIG_BT_ENABLED */
+
 esp_err_t init_bluetooth(void);
 esp_err_t enable_bluetooth(void);
 esp_err_t disable_bluetooth(void);
@@ -168,5 +162,6 @@ esp_err_t deinit_bluetooth(bool mem_release);
 
 uint8_t get_bluetooth_capabilities(void);
 uint32_t get_bluetooth_ext_capabilities(void);
+#endif /* CONFIG_ESP_HOSTED_CP_BT */
 
 #endif /* __SLAVE_BT_H__ */

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2015-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -13,7 +13,6 @@
 #include "interface.h"
 #include "sdio_slave_api.h"
 #include "driver/sdio_slave.h"
-#include "soc/sdio_slave_periph.h"
 #include "endian.h"
 #include "mempool.h"
 #include "stats.h"
@@ -29,9 +28,9 @@
 #define SDIO_RX_BUFFER_SIZE              MAX_TRANSPORT_BUF_SIZE
 #define SDIO_NUM_RX_BUFFERS              CONFIG_ESP_SDIO_RX_Q_SIZE
 static uint8_t sdio_slave_rx_buffer[SDIO_NUM_RX_BUFFERS][SDIO_RX_BUFFER_SIZE];
+static sdio_slave_buf_handle_t sdio_rx_buf_handles[SDIO_NUM_RX_BUFFERS];
 
-/* TODO: Need to cross check once in priority queue properly handled */
-#define SDIO_MEMPOOL_NUM_BLOCKS         40
+#define SDIO_MEMPOOL_NUM_BLOCKS         SDIO_DRIVER_TX_QUEUE_SIZE+2
 static struct hosted_mempool * buf_mp_tx_g;
 
 interface_context_t context;
@@ -43,6 +42,8 @@ static uint8_t hosted_constructs_created = 0;
 static SemaphoreHandle_t sdio_rx_sem;
 static QueueHandle_t sdio_rx_queue[MAX_PRIORITY_QUEUES];
 static SemaphoreHandle_t sdio_send_queue_sem = NULL; // to count number of Tx bufs in IDF SDIO driver
+static TaskHandle_t sdio_rx_task_handle = NULL;
+static TaskHandle_t sdio_tx_done_task_handle = NULL;
 #endif
 
 #define SDIO_SLAVE_TO_HOST_INT_BIT7     7
@@ -180,31 +181,9 @@ int interface_remove_driver()
 
 IRAM_ATTR static void event_cb(uint8_t val)
 {
-	if (val == ESP_RESET) {
-		/* Force power save off state when host resets */
-		host_power_save_alert(ESP_POWER_SAVE_OFF);
-		sdio_reset(&if_handle_g);
-		return;
-	}
-
-	if (val == ESP_OPEN_DATA_PATH) {
-		/* Also force power save off on data path open */
-		host_power_save_alert(ESP_POWER_SAVE_OFF);
-		sdio_reset(&if_handle_g);
-	}
-
-	if (val == ESP_POWER_SAVE_OFF) {
-		//sdio_reset(&if_handle_g);
-		host_power_save_alert(ESP_POWER_SAVE_OFF);
-		sdio_reset(&if_handle_g);
-	}
 
 	if (context.event_handler) {
 		context.event_handler(val);
-	}
-
-	if (val == ESP_POWER_SAVE_ON) {
-		sdio_reset(&if_handle_g);
 	}
 }
 
@@ -247,6 +226,17 @@ void generate_startup_event(uint8_t cap, uint32_t ext_cap)
 	*pos = ESP_PRIV_FIRMWARE_CHIP_ID;   pos++;len++;
 	*pos = LENGTH_1_BYTE;               pos++;len++;
 	*pos = CONFIG_IDF_FIRMWARE_CHIP_ID; pos++;len++;
+
+#if CONFIG_ESP_SDIO_STREAMING_MODE
+	uint8_t sdio_mode = 1;
+#else
+	uint8_t sdio_mode = 0;
+#endif
+
+	/* TLV - SDIO mode */
+	*pos = ESP_PRIV_TRANS_SDIO_MODE;    pos++;len++;
+	*pos = LENGTH_1_BYTE;               pos++;len++;
+	*pos = sdio_mode;                   pos++;len++;
 
 	/* TLV - Capability */
 	*pos = ESP_PRIV_CAPABILITY;         pos++;len++;
@@ -317,68 +307,6 @@ void generate_startup_event(uint8_t cap, uint32_t ext_cap)
 
 }
 
-void generate_custom_event(uint8_t type, uint8_t* payload, uint16_t payload_length)
-{
-	if (payload_length > 512 - sizeof(struct esp_payload_header)) {
-		ESP_LOGE(TAG, "Custom event payload too large: %u > %u", payload_length, 512 - sizeof(struct esp_payload_header));
-		return;
-	}
-	struct esp_payload_header *header = NULL;
-	interface_buffer_handle_t buf_handle = {0};
-	struct esp_priv_event *event = NULL;
-	uint8_t *pos = NULL;
-	uint8_t raw_tp_cap = 0;
-	esp_err_t ret = ESP_OK;
-
-	raw_tp_cap = debug_get_raw_tp_conf();
-
-	memset(&buf_handle, 0, sizeof(buf_handle));
-
-	buf_handle.payload = sdio_buffer_tx_alloc(512, MEMSET_REQUIRED);
-	assert(buf_handle.payload);
-
-	header = (struct esp_payload_header *) buf_handle.payload;
-
-	header->if_type = ESP_PRIV_IF;
-	header->if_num = 0;
-	header->offset = htole16(sizeof(struct esp_payload_header));
-	header->priv_pkt_type = ESP_PACKET_TYPE_EVENT;
-	UPDATE_HEADER_TX_PKT_NO(header);
-
-	/* Populate event data */
-	event = (struct esp_priv_event *) (buf_handle.payload + sizeof(struct esp_payload_header));
-	event->event_type = type;
-	event->event_len = payload_length;
-	memcpy(event->event_data, payload, payload_length);
-
-	uint16_t len = payload_length + sizeof(struct esp_priv_event);
-	header->len = htole16(len);
-
-	buf_handle.payload_len = len + sizeof(struct esp_payload_header);
-#if CONFIG_ESP_SDIO_CHECKSUM
-	header->checksum = htole16(compute_checksum(buf_handle.payload, buf_handle.payload_len));
-#endif
-
-	ESP_HEXLOGV("bus_tx_init", buf_handle.payload, buf_handle.payload_len, 32);
-
-#if !SIMPLIFIED_SDIO_SLAVE
-	xSemaphoreTake(sdio_send_queue_sem, portMAX_DELAY);
-	ret = sdio_slave_send_queue(buf_handle.payload, buf_handle.payload_len,
-			buf_handle.payload, portMAX_DELAY);
-#else
-	ret = sdio_slave_transmit(buf_handle.payload, buf_handle.payload_len);
-#endif
-	if (ret != ESP_OK) {
-		ESP_LOGE(TAG , "sdio slave tx error, ret : 0x%x\r\n", ret);
-		sdio_buffer_tx_free(buf_handle.payload);
-		return;
-	}
-#if SIMPLIFIED_SDIO_SLAVE
-	sdio_buffer_tx_free(buf_handle.payload);
-#endif
-
-}
-
 static void sdio_read_done(void *handle)
 {
 	ESP_LOGV(TAG, "sdio_read_done, reloading buf");
@@ -392,7 +320,6 @@ static interface_handle_t * sdio_init(void)
 	}
 
 	esp_err_t ret = ESP_OK;
-	sdio_slave_buf_handle_t handle = {0};
 	sdio_slave_config_t config = {
 #if CONFIG_ESP_SDIO_STREAMING_MODE
 		.sending_mode       = SDIO_SLAVE_SEND_STREAM,
@@ -448,12 +375,11 @@ static interface_handle_t * sdio_init(void)
 		return NULL;
 	}
 
-
 	for (int i = 0; i < SDIO_NUM_RX_BUFFERS; i++) {
-		handle = sdio_slave_recv_register_buf(sdio_slave_rx_buffer[i]);
-		assert(handle != NULL);
+		sdio_rx_buf_handles[i] = sdio_slave_recv_register_buf(sdio_slave_rx_buffer[i]);
+		assert(sdio_rx_buf_handles[i] != NULL);
 
-		ret = sdio_slave_recv_load_buf(handle);
+		ret = sdio_slave_recv_load_buf(sdio_rx_buf_handles[i]);
 		if (ret != ESP_OK) {
 			sdio_slave_deinit();
 			return NULL;
@@ -487,14 +413,19 @@ static interface_handle_t * sdio_init(void)
 	if_handle_g.state = ACTIVE;
 
 #if !SIMPLIFIED_SDIO_SLAVE
-	assert(xTaskCreate(sdio_rx_task, "sdio_rx_task" ,
-			CONFIG_ESP_HOSTED_DEFAULT_TASK_STACK_SIZE, NULL,
-			CONFIG_ESP_HOSTED_DEFAULT_TASK_PRIORITY, NULL) == pdTRUE);
+	/* Create tasks only if they don't exist (preserve across init/deinit cycles) */
+	if (sdio_rx_task_handle == NULL) {
+		assert(xTaskCreate(sdio_rx_task, "sdio_rx_task" ,
+				CONFIG_ESP_HOSTED_DEFAULT_TASK_STACK_SIZE, NULL,
+				CONFIG_ESP_HOSTED_DEFAULT_TASK_PRIORITY, &sdio_rx_task_handle) == pdTRUE);
+	}
 
-	// task to clean up after doing sdio tx
-	assert(xTaskCreate(sdio_tx_done_task, "sdio_tx_done_task" ,
-			CONFIG_ESP_HOSTED_DEFAULT_TASK_STACK_SIZE, NULL,
-			CONFIG_ESP_HOSTED_DEFAULT_TASK_PRIORITY, NULL) == pdTRUE);
+	/* task to clean up after doing sdio tx */
+	if (sdio_tx_done_task_handle == NULL) {
+		assert(xTaskCreate(sdio_tx_done_task, "sdio_tx_done_task" ,
+				CONFIG_ESP_HOSTED_DEFAULT_TASK_STACK_SIZE, NULL,
+				CONFIG_ESP_HOSTED_DEFAULT_TASK_PRIORITY+1, &sdio_tx_done_task_handle) == pdTRUE);
+	}
 #endif
 
 	return &if_handle_g;
@@ -563,7 +494,7 @@ static inline esp_err_t copy_tx_payload(uint8_t *sendbuf, uint8_t* payload, uint
 
 static int32_t sdio_write(interface_handle_t *handle, interface_buffer_handle_t *buf_handle)
 {
-	int32_t total_len = 0;
+	uint32_t total_len = 0;
 	uint8_t* sendbuf = NULL;
 	uint16_t offset = sizeof(struct esp_payload_header);
 	int ret = 0;
@@ -837,17 +768,21 @@ static int sdio_read(interface_handle_t *if_handle, interface_buffer_handle_t *b
 }
 #endif /* !SIMPLIFIED_SDIO_SLAVE */
 
-static void sdio_reset_task(void *pvParameters)
+static esp_err_t sdio_reset(interface_handle_t *handle)
 {
-	interface_handle_t *handle = (interface_handle_t *)pvParameters;
 	esp_err_t ret = ESP_OK;
+
+	if (handle->state >= DEACTIVE) {
+		handle->state = DEACTIVE;
+		return ESP_OK;
+	}
 
 	sdio_slave_stop();
 
 	ret = sdio_slave_reset();
 	if (ret != ESP_OK) {
 		ESP_LOGE(TAG, "Failed to reset SDIO slave: %d", ret);
-		goto exit;
+		return ret;
 	}
 
 	/* ESP-Hosted uses bit6 and bit 7 internal use, rest bits free */
@@ -864,35 +799,52 @@ static void sdio_reset_task(void *pvParameters)
 	ret = sdio_slave_start();
 	if (ret != ESP_OK) {
 		ESP_LOGE(TAG, "Failed to start SDIO slave: %d", ret);
-		goto exit;
+		return ret;
 	}
 
-exit:
 	handle->state = ACTIVE;
-	vTaskDelete(NULL);
-}
-
-static esp_err_t sdio_reset(interface_handle_t *handle)
-{
-	if (handle->state >= DEACTIVE) {
-		handle->state = DEACTIVE;
-		return ESP_OK;
-	}
-
-	/* Create a task to handle SDIO reset */
-	xTaskCreate(sdio_reset_task, "sdio_reset",
-			CONFIG_ESP_HOSTED_DEFAULT_TASK_STACK_SIZE, handle,
-			CONFIG_ESP_HOSTED_DEFAULT_TASK_PRIORITY, NULL);
-
 	return ESP_OK;
 }
 
 #if H_PS_UNLOAD_BUS_WHILE_PS
-static void sdio_deinit_task(void *pvParameters)
+static void sdio_deinit(interface_handle_t *handle)
 {
 	esp_err_t ret = ESP_OK;
 
+	if (if_handle_g.state == DEINIT) {
+		ESP_LOGW(TAG, "SDIO already deinitialized");
+		return;
+	}
+
 	ESP_LOGI(TAG, "Deinitializing SDIO interface");
+
+#if !SIMPLIFIED_SDIO_SLAVE
+	ESP_LOGI(TAG, "Waiting for sdio_rx_task to exit");
+	if (sdio_rx_task_handle) {
+		vTaskDelete(sdio_rx_task_handle);
+		sdio_rx_task_handle = NULL;
+	}
+	ESP_LOGI(TAG, "sdio_rx_task: Exiting");
+	ESP_LOGI(TAG, "Waiting for sdio_tx_done_task to exit");
+	if (sdio_tx_done_task_handle) {
+		vTaskDelete(sdio_tx_done_task_handle);
+		sdio_tx_done_task_handle = NULL;
+	}
+	/* Give tasks time to exit */
+	vTaskDelay(pdMS_TO_TICKS(50));
+#endif
+
+	/* Unregister all RX buffers BEFORE stopping SDIO (stop may invalidate handles) */
+	for (int i = 0; i < SDIO_NUM_RX_BUFFERS; i++) {
+		if (sdio_rx_buf_handles[i]) {
+			ret = sdio_slave_recv_unregister_buf(sdio_rx_buf_handles[i]);
+			/* ESP_ERR_INVALID_ARG means buffer already unregistered/invalid - ignore */
+			if (ret != ESP_OK && ret != ESP_ERR_INVALID_ARG) {
+				ESP_LOGW(TAG, "Failed to unregister RX buffer %d: 0x%x", i, ret);
+			}
+			sdio_rx_buf_handles[i] = NULL;
+		}
+	}
 
 	/* First stop SDIO to prevent new operations */
 	sdio_slave_stop();
@@ -917,11 +869,11 @@ static void sdio_deinit_task(void *pvParameters)
 	/* Reset the SDIO slave peripheral */
 	sdio_slave_reset();
 
-	/* Now try to clean up buffers with timeout */
+	/* Now try to clean up TX buffers with timeout */
 	int retry = 3;
 	while (retry--) {
 		sdio_slave_buf_handle_t buf_handle = NULL;
-		ret = sdio_slave_send_get_finished(&buf_handle, 10); // 10ms timeout
+		ret = sdio_slave_send_get_finished((void**)&buf_handle, 10); // 10ms timeout
 		if (ret == ESP_ERR_TIMEOUT) {
 			ESP_LOGW(TAG, "Buffer cleanup timed out, retrying...");
 			continue;
@@ -937,32 +889,17 @@ static void sdio_deinit_task(void *pvParameters)
 #endif
 
 		if (buf_handle) {
-			ret = sdio_slave_recv_unregister_buf(buf_handle);
-			ESP_ERROR_CHECK_WITHOUT_ABORT(ret);
+			sdio_buffer_tx_free(buf_handle);
 		}
 	}
 
-	/* Final deinit */
 	sdio_slave_deinit();
 	if_handle_g.state = DEINIT;
 
 	ESP_LOGI(TAG, "SDIO interface deinitialized");
-	vTaskDelete(NULL);
 }
-#endif
-
+#else
 static void sdio_deinit(interface_handle_t *handle)
 {
-#if H_PS_UNLOAD_BUS_WHILE_PS
-	if (if_handle_g.state == DEINIT) {
-		ESP_LOGW(TAG, "SDIO already deinitialized");
-		return;
-	}
-	if_handle_g.state = DEINIT;
-
-	/* Create a task to handle SDIO deinitialization */
-	xTaskCreate(sdio_deinit_task, "sdio_deinit",
-			CONFIG_ESP_HOSTED_DEFAULT_TASK_STACK_SIZE, handle,
-			CONFIG_ESP_HOSTED_DEFAULT_TASK_PRIORITY, NULL);
-#endif
 }
+#endif

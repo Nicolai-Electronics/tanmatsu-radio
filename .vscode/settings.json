@@ -10,5 +10,6 @@
     ],
     "idf.customExtraVars": {
         "IDF_TARGET": "esp32c6"
-    }
+    },
+    "idf.currentSetup": "/home/renze/Documents/Nicolai_Electronics/Tanmatsu/Apps/tanmatsu-launcher/esp-idf"
 }

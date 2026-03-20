@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2024 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2024-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <esp_log.h>
+#include <esp_err.h>
 #include <esp_heap_caps.h>
 
 #ifdef CONFIG_HEAP_TRACING
@@ -39,6 +40,11 @@
   #include "wifi_cmd.h"
   #include "iperf_cmd.h"
   #include "ping_cmd.h"
+  #include "esp_attr.h"
+
+  #define H_IRAM_ATTR IRAM_ATTR
+#else
+  #define H_IRAM_ATTR
 #endif
 
 static const char *TAG = "esp_cli";
@@ -265,8 +271,15 @@ static int power_save_cli_handler(int argc, char *argv[])
 #ifdef CONFIG_ESP_HOSTED_COPROCESSOR
 static int wakeup_cli_handler(int argc, char *argv[])
 {
-	ESP_LOGI(TAG, "Asking host to wake-up...");
+	ESP_LOGI(TAG, "wake-up host... (ignored if host is NOT sleeping)");
 	wakeup_host(portMAX_DELAY);
+	return 0;
+}
+
+static int reset_host_cli_handler(int argc, char *argv[])
+{
+	ESP_LOGI(TAG, "Resetting host...");
+	wakeup_host_mandate(portMAX_DELAY);
 	return 0;
 }
 #endif
@@ -323,11 +336,17 @@ static esp_console_cmd_t diag_cmds[] = {
 		.help = "Wake-up host from power save",
 		.func = wakeup_cli_handler,
 	},
+	{
+		.command = "reset-host",
+		.help = "Reset host",
+		.func = reset_host_cli_handler,
+	},
 #endif
 #endif
 };
 
 #ifdef CONFIG_ESP_HOSTED_COPROCESSOR
+#if !defined(H_HOST_PS_ALLOWED)
 
   #if CONFIG_ESP_WIFI_ENABLE_WIFI_TX_STATS || CONFIG_ESP_WIFI_ENABLE_WIFI_RX_STATS
     #include "esp_wifi_he.h"
@@ -343,7 +362,7 @@ static esp_console_cmd_t diag_cmds[] = {
 	extern int wifi_cmd_clr_rx_statistics(int argc, char **argv);
   #endif
 
-void iperf_hook_show_wifi_stats(iperf_traffic_type_t type, iperf_status_t status)
+static void hosted_iperf_hook_show_wifi_stats(iperf_traffic_type_t type, iperf_status_t status)
 {
 	if (status == IPERF_STARTED) {
   #if CONFIG_ESP_WIFI_ENABLE_WIFI_TX_STATS
@@ -373,75 +392,115 @@ void iperf_hook_show_wifi_stats(iperf_traffic_type_t type, iperf_status_t status
 
 }
 #endif
+#endif
 
-int esp_cli_register_cmds(void)
+#if 0
+/* auto deregistered as part of esp_console_stop_repl(repl); */
+static esp_err_t esp_hosted_cli_deregister_cmds(void)
 {
+	int ret = 0;
+
 	int cmds_num = sizeof(diag_cmds) / sizeof(esp_console_cmd_t);
 	int i;
 
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 0)
-	/* esp_console_cmd_deregister was added in ESP-IDF v5.4+ */
-	const char* remove_cmd = "deep_sleep";
-	ESP_LOGI(TAG, "Remove any existing deep_sleep cmd in cli");
-	esp_console_cmd_deregister(remove_cmd);
+	for (i = 0; i < cmds_num; i++) {
+		ESP_LOGI(TAG, "Deregistering command: %s", diag_cmds[i].command);
+		ret = esp_console_cmd_deregister(diag_cmds[i].command);
+		if (ret != ESP_OK && ret != ESP_ERR_INVALID_ARG) {
+			ESP_LOGW(TAG, "Failed to deregister command %s: %s",
+					diag_cmds[i].command, esp_err_to_name(ret));
+		}
+	}
+
+	return ret;
+}
 #endif
+
+static int esp_hosted_cli_register_cmds(void)
+{
+	int cmds_num = sizeof(diag_cmds) / sizeof(esp_console_cmd_t);
+	int i;
 
 	for (i = 0; i < cmds_num; i++) {
 		ESP_LOGI(TAG, "Registering command: %s", diag_cmds[i].command);
 		esp_console_cmd_register(&diag_cmds[i]);
 	}
 
-#ifdef CONFIG_ESP_HOSTED_COPROCESSOR
+#if !defined(H_HOST_PS_ALLOWED)
 
+	/* NOTE: As we do not have corresponding deregister cmds
+	 * we will not register these for host wake ups, as doing so,
+	 * memory leak would happen for these commands
+	 */
 	app_register_all_wifi_commands();
 	app_register_iperf_commands();
 	ping_cmd_register_ping();
-	app_register_iperf_hook_func(iperf_hook_show_wifi_stats);
+	app_register_iperf_hook_func(hosted_iperf_hook_show_wifi_stats);
 #endif
 	return 0;
 }
 
 
 #ifdef CONFIG_ESP_HOSTED_CLI_NEW_INSTANCE
+
+static esp_console_repl_t *repl = NULL;
+
+
 int esp_hosted_cli_start(void)
 {
-	static int cli_started;
-	if (cli_started) {
-		return 0;
-	}
-
-	esp_console_repl_t *repl = NULL;
 	esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
   #ifdef CONFIG_ESP_HOSTED_COPROCESSOR
 	repl_config.prompt = "coprocessor> ";
   #elif defined(H_ESP_HOSTED_HOST)
 	repl_config.prompt = "host> ";
   #endif
-	esp_console_register_help_command();
-	esp_cli_register_cmds();
 
-  #if defined(CONFIG_ESP_CONSOLE_UART_DEFAULT) || defined(CONFIG_ESP_CONSOLE_UART_CUSTOM)
-	esp_console_dev_uart_config_t hw_config = ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
-	ESP_ERROR_CHECK(esp_console_new_repl_uart(&hw_config, &repl_config, &repl));
+	esp_hosted_cli_register_cmds();
 
-  #elif defined(CONFIG_ESP_CONSOLE_USB_CDC)
-	esp_console_dev_usb_cdc_config_t hw_config = ESP_CONSOLE_DEV_CDC_CONFIG_DEFAULT();
-	ESP_ERROR_CHECK(esp_console_new_repl_usb_cdc(&hw_config, &repl_config, &repl));
+	if (!repl) {
 
-  #elif defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
-	esp_console_dev_usb_serial_jtag_config_t hw_config = ESP_CONSOLE_DEV_USB_SERIAL_JTAG_CONFIG_DEFAULT();
-	ESP_ERROR_CHECK(esp_console_new_repl_usb_serial_jtag(&hw_config, &repl_config, &repl));
-  #else
-    #error Unsupported console type
-  #endif
+#if defined(CONFIG_ESP_CONSOLE_UART_DEFAULT) || defined(CONFIG_ESP_CONSOLE_UART_CUSTOM)
+		esp_console_dev_uart_config_t hw_config = ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
+		ESP_ERROR_CHECK(esp_console_new_repl_uart(&hw_config, &repl_config, &repl));
+
+#elif defined(CONFIG_ESP_CONSOLE_USB_CDC)
+		esp_console_dev_usb_cdc_config_t hw_config = ESP_CONSOLE_DEV_CDC_CONFIG_DEFAULT();
+		ESP_ERROR_CHECK(esp_console_new_repl_usb_cdc(&hw_config, &repl_config, &repl));
+
+#elif defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
+		esp_console_dev_usb_serial_jtag_config_t hw_config = ESP_CONSOLE_DEV_USB_SERIAL_JTAG_CONFIG_DEFAULT();
+		ESP_ERROR_CHECK(esp_console_new_repl_usb_serial_jtag(&hw_config, &repl_config, &repl));
+#else
+  #error Unsupported console type
+#endif
+	}
+
 	ESP_ERROR_CHECK(esp_console_start_repl(repl));
-	cli_started = 1;
 	return 0;
 }
+
+void H_IRAM_ATTR esp_hosted_cli_stop(void)
+{
+	if (repl) {
+		/* Stop the REPL first */
+		esp_console_stop_repl(repl);
+
+		/* Clear the handle */
+		repl = NULL;
+
+		print_heap_stats();
+	}
+}
+
 #else
 int esp_hosted_cli_start(void)
 {
-	return esp_cli_register_cmds();
+	return esp_hosted_cli_register_cmds();
+}
+
+void esp_hosted_cli_stop(void)
+{
+	/* Old CLI implementation - no stop needed */
 }
 #endif
 

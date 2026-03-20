@@ -1,17 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-// Copyright 2015-2025 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2015-2026 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 //
 
 #ifndef __STATS__H__
@@ -38,7 +30,8 @@
 
 /* Stats CONFIG:
  *
- * 1. CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
+ * 1. defined(CONFIG_ESP_HOSTED_LOG_RUNTIME_FREERTOS_STATS)
+ *    Needs to enable, CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
  *    These are debug stats to show the CPU utilization by all tasks
  *    This is set through sdkconfig
  *
@@ -55,10 +48,15 @@
 #define TEST_RAW_TP                    CONFIG_ESP_RAW_THROUGHPUT_TRANSPORT
 
 #ifdef CONFIG_ESP_PKT_STATS
-#define ESP_PKT_STATS 1
+  #define ESP_PKT_STATS 1
 #endif
 
-#ifdef CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
+#ifdef CONFIG_ESP_HOSTED_LOG_RUNTIME_FREERTOS_STATS
+
+#ifndef CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS
+#error "CONFIG_ESP_HOSTED_LOG_RUNTIME_FREERTOS_STATS needs CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS to be enabled"
+#endif
+
   /* Stats to show task wise CPU utilization */
   #define STATS_TICKS                  pdMS_TO_TICKS(1000*2)
   #define ARRAY_SIZE_OFFSET            5
@@ -101,7 +99,7 @@ typedef struct {
  * to change TEST_RAW_TP__BUF_SIZE as:
  *
  * UDP : Max unfragmented packet size: 1472.
- * H_ESP_PAYLOAD_HEADER_OFFSET is not included into the calulations.
+ * H_ESP_PAYLOAD_HEADER_OFFSET is not included into the calculations.
  *
  * TCP: Assess MSS and decide similar to above
  */
@@ -149,6 +147,10 @@ struct pkt_stats_t {
 	uint32_t serial_tx_evt;
 	uint32_t sta_flowctrl_on;
 	uint32_t sta_flowctrl_off;
+	uint32_t sta_lwip_in;
+	uint32_t sta_slave_lwip_out;
+	uint32_t sta_host_lwip_out;
+	uint32_t sta_both_lwip_out;
 };
 
 extern struct pkt_stats_t pkt_stats;

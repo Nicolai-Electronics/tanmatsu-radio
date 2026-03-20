@@ -18,7 +18,7 @@ extern "C" {
 typedef struct {
     uint16_t address;
     uint16_t command;
-} ir_nec_scan_code_t;
+} __attribute__((packed)) ir_nec_scan_code_t;
 
 /**
  * @brief Type of IR NEC encoder configuration
