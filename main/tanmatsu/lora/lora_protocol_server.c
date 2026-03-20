@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include "esp_err.h"
+#include "esp_hosted_peer_data.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -14,7 +15,6 @@
 #include "sdio_slave_api.h"
 #include "sx126x.h"
 #include "tanmatsu_hardware.h"
-#include "tanmatsu_interfaces.h"
 
 static const char*                   TAG         = "lora";
 static sx126x_handle_t               lora_handle = {0};
@@ -22,12 +22,19 @@ static uint8_t                       reply_buffer[512];
 static lora_protocol_config_params_t current_config = {0};
 static SemaphoreHandle_t             tx_semaphore   = NULL;
 
+static void generate_custom_event(uint32_t event_id, uint8_t* event_data, size_t event_data_len) {
+    esp_err_t res = esp_hosted_send_custom_data(event_id, event_data, event_data_len);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to send lora event: %s", esp_err_to_name(res));
+    }
+}
+
 static void send_nack(uint32_t sequence_number) {
     lora_protocol_header_t* nack_packet = (lora_protocol_header_t*)reply_buffer;
     nack_packet->sequence_number        = sequence_number;
     nack_packet->type                   = LORA_PROTOCOL_TYPE_NACK;
     size_t nack_length                  = sizeof(lora_protocol_header_t);
-    generate_custom_event(ESP_PRIV_EVENT_LORA, reply_buffer, nack_length);
+    generate_custom_event(TANMATSU_EVENT_LORA, reply_buffer, nack_length);
 }
 
 static void send_ack(uint32_t sequence_number) {
@@ -35,7 +42,7 @@ static void send_ack(uint32_t sequence_number) {
     ack_packet->sequence_number        = sequence_number;
     ack_packet->type                   = LORA_PROTOCOL_TYPE_ACK;
     size_t ack_length                  = sizeof(lora_protocol_header_t);
-    generate_custom_event(ESP_PRIV_EVENT_LORA, reply_buffer, ack_length);
+    generate_custom_event(TANMATSU_EVENT_LORA, reply_buffer, ack_length);
 }
 
 static void send_mode(uint32_t sequence_number) {
@@ -76,7 +83,7 @@ static void send_mode(uint32_t sequence_number) {
     }
 
     size_t mode_length = sizeof(lora_protocol_header_t) + sizeof(lora_protocol_mode_params_t);
-    generate_custom_event(ESP_PRIV_EVENT_LORA, reply_buffer, mode_length);
+    generate_custom_event(TANMATSU_EVENT_LORA, reply_buffer, mode_length);
 }
 
 esp_err_t apply_mode(uint8_t* mode_data, size_t mode_length) {
@@ -117,7 +124,7 @@ static void send_config(uint32_t sequence_number) {
     memcpy(config_params, &current_config, sizeof(lora_protocol_config_params_t));
 
     size_t config_length = sizeof(lora_protocol_header_t) + sizeof(lora_protocol_config_params_t);
-    generate_custom_event(ESP_PRIV_EVENT_LORA, reply_buffer, config_length);
+    generate_custom_event(TANMATSU_EVENT_LORA, reply_buffer, config_length);
 }
 
 static esp_err_t apply_config(uint8_t* config_data, size_t config_length) {
@@ -322,7 +329,7 @@ static void send_status(uint32_t sequence_number) {
     status_params->errors = errors;
 
     size_t status_length = sizeof(lora_protocol_header_t) + sizeof(lora_protocol_status_params_t);
-    generate_custom_event(ESP_PRIV_EVENT_LORA, reply_buffer, status_length);
+    generate_custom_event(TANMATSU_EVENT_LORA, reply_buffer, status_length);
 }
 
 static esp_err_t transmit_packet(uint8_t* packet_data, size_t packet_length) {
@@ -488,6 +495,15 @@ void lora_protocol_handle_packet(uint8_t* request_buffer, size_t request_length)
     return;
 }
 
+static void lora_protocol_packet_callback(uint32_t msg_id, const uint8_t* data, size_t data_len) {
+    if (msg_id != TANMATSU_EVENT_LORA) {
+        ESP_LOGW(TAG, "Received message with unexpected ID: %d", msg_id);
+        return;
+    }
+
+    lora_protocol_handle_packet((uint8_t*)data, data_len);
+}
+
 esp_err_t lora_initialize(void) {
     esp_err_t res;
 
@@ -495,6 +511,12 @@ esp_err_t lora_initialize(void) {
     if (tx_semaphore == NULL) {
         ESP_LOGE(TAG, "Failed to create TX semaphore");
         return ESP_ERR_NO_MEM;
+    }
+
+    res = esp_hosted_register_custom_callback(TANMATSU_EVENT_LORA, lora_protocol_packet_callback);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to register LoRa protocol callback: %s", esp_err_to_name(res));
+        return res;
     }
 
     res = sx126x_set_op_mode_standby(&lora_handle, false);
@@ -704,7 +726,7 @@ void read_data(void) {
     lora_packet->type            = LORA_PROTOCOL_TYPE_PACKET_RX;
 
     size_t total_length = sizeof(lora_protocol_header_t) + packet_length;
-    generate_custom_event(ESP_PRIV_EVENT_LORA, data, total_length);
+    generate_custom_event(TANMATSU_EVENT_LORA, data, total_length);
 }
 
 void lora_task(void* pvParameters) {

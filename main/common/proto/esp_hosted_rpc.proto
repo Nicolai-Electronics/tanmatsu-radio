@@ -37,6 +37,12 @@ enum Rpc_Status {
 }
 
 
+enum RpcCmd {
+	Invalid = 0;
+	Get = 1;
+	Set = 2;
+}
+
 enum RpcType {
 MsgType_Invalid = 0;
 	Req = 1;
@@ -86,13 +92,11 @@ enum RpcId {
 	Req_SuppDppStartListen            = 264; //0x108
 	Req_SuppDppStopListen             = 265; //0x109
 
-	//Req_SetSoftAPVendorSpecificIE     = 266; //0x10a
-	//Req_StartSoftAP                   = 267; //0x10b
-	//Req_GetSoftAPConnectedSTAList     = 268; //0x10c
-	//Req_StopSoftAP                    = 269; //0x10d
 	Req_OTAActivate                   = 266; //0x10a
 
 	Req_AppGetDesc                    = 267; //0x10b
+	Req_MemMonitor                    = 268; //0x10c
+	Req_WifiScanParams                = 269; //0x10d
 
 	Req_WifiSetPs                     = 270; //0x10e
 	Req_WifiGetPs                     = 271; //0x10f
@@ -242,9 +246,22 @@ enum RpcId {
 	 */
 	Req_FeatureControl                = 387; //0x183
 
+	/* Custom RPC for user-defined packed structures */
+	Req_CustomRpc                     = 388; //0x184
+
+	Req_GpioConfig                    = 389; // 0x185
+	Req_GpioResetPin                  = 390; // 0x186
+	Req_GpioSetLevel                  = 391; // 0x187
+	Req_GpioGetLevel                  = 392; // 0x188
+	Req_GpioSetDirection              = 393; // 0x189
+	Req_GpioInputEnable               = 394; // 0x18a
+	Req_GpioSetPullMode               = 395; // 0x18B
+
+	Req_ExtCoex                      = 396; // 0x18C
+
 	/* Add new control path command response before Req_Max
 	 * and update Req_Max */
-	Req_Max = 388; //0x184
+	Req_Max = 397; //0x18D
 
 	/** Response Msgs **/
 	Resp_Base                         = 512;
@@ -267,6 +284,8 @@ enum RpcId {
 	Resp_OTAActivate                  = 522;
 
 	Resp_AppGetDesc                   = 523;
+	Resp_MemMonitor                   = 524;
+	Resp_WifiScanParams               = 525;
 
 	Resp_WifiSetPs                    = 526;
 	Resp_WifiGetPs                    = 527;
@@ -407,13 +426,24 @@ enum RpcId {
 	Resp_EapSetDisableTimeCheck               = 639;
 	Resp_EapSetEapMethods                     = 640;
 
-	Resp_IfaceMacAddrSetGet           = 641;
-	Resp_IfaceMacAddrLenGet           = 642;
-	Resp_FeatureControl               = 643;
+	Resp_IfaceMacAddrSetGet                   = 641;
+	Resp_IfaceMacAddrLenGet                   = 642;
+	Resp_FeatureControl                       = 643;
+
+	Resp_CustomRpc                            = 644;
+
+	Resp_GpioConfig                           = 645;
+	Resp_GpioResetPin                         = 646;
+	Resp_GpioSetLevel                         = 647;
+	Resp_GpioGetLevel                         = 648;
+	Resp_GpioSetDirection                     = 649;
+	Resp_GpioInputEnable                      = 650;
+	Resp_GpioSetPullMode                      = 651;
+	Resp_ExtCoex                              = 652;
 
 	/* Add new control path command response before Resp_Max
 	 * and update Resp_Max */
-	Resp_Max = 644;
+	Resp_Max = 653;
 
 	/** Event Msgs **/
 	Event_Base = 768;
@@ -441,9 +471,14 @@ enum RpcId {
 	Event_WifiDppCfgRecvd = 786;
 	Event_WifiDppFail = 787;
 
+	/* Custom RPC event for user-defined packed structures */
+	Event_CustomRpc = 788;
+
+	Event_MemMonitor = 789;
+
 	/* Add new control path command notification before Event_Max
 	 * and update Event_Max */
-	Event_Max = 788;
+	Event_Max = 790;
 }
 
 message wifi_init_config {
@@ -509,8 +544,13 @@ message wifi_scan_config {
 	wifi_scan_time scan_time = 6;               /**< scan time per channel */
 	uint32         home_chan_dwell_time = 7;    /**< time spent at home channel between scanning consecutive channels.*/
 	wifi_scan_channel_bitmap channel_bitmap = 8; /**< Channel bitmap for setting specific channels to be scanned.
-                                                      Please note that the 'channel' parameter above needs to be set to 0 to allow scanning by bitmap.
-                                                      Also, note that only allowed channels configured by wifi_country_t can be scanned. */
+												   Please note that the 'channel' parameter above needs to be set to 0 to allow scanning by bitmap.
+												   Also, note that only allowed channels configured by wifi_country_t can be scanned. */
+}
+
+message wifi_scan_default_params {
+	wifi_scan_time scan_time = 1;               /**< Scan time per channel */
+	uint32         home_chan_dwell_time = 2;    /**< Time spent at home channel between scanning consecutive channels.*/
 }
 
 message wifi_he_ap_info {
@@ -544,27 +584,27 @@ message wifi_ap_record {
 	wifi_country   country = 11;                /**< country information of AP */
 	wifi_he_ap_info he_ap = 12;
 	uint32         bandwidth = 13;              /**< For AP 20 MHz this value is set to 1. For AP 40 MHz this value is set to 2.
-                                                     For AP 80 MHz this value is set to 3. For AP 160MHz this value is set to 4.
-                                                     For AP 80+80MHz this value is set to 5*/
+												  For AP 80 MHz this value is set to 3. For AP 160MHz this value is set to 4.
+												  For AP 80+80MHz this value is set to 5*/
 	uint32         vht_ch_freq1 = 14;           /**< This fields are used only AP bandwidth is 80 and 160 MHz, to transmit the center channel
-                                                     frequency of the BSS. For AP bandwidth is 80 + 80 MHz, it is the center channel frequency
-                                                     of the lower frequency segment.*/
+												  frequency of the BSS. For AP bandwidth is 80 + 80 MHz, it is the center channel frequency
+												  of the lower frequency segment.*/
 	uint32         vht_ch_freq2 = 15;           /**< This fields are used only AP bandwidth is 80 + 80 MHz, and is used to transmit the center
-                                                     channel frequency of the second segment. */
+												  channel frequency of the second segment. */
 }
 
 message wifi_scan_threshold {
 	int32          rssi = 1;                    /**< The minimum rssi to accept in the fast scan mode */
 	int32          authmode = 2;                /**< The weakest authmode to accept in the fast scan mode
-Note: Incase this value is not set and password is set as per WPA2 standards(password len >= 8),
+Note: In case this value is not set and password is set as per WPA2 standards(password len >= 8),
 it will be defaulted to WPA2 and device won't connect to deprecated WEP/WPA networks.
 Please set authmode threshold as WIFI_AUTH_WEP/WIFI_AUTH_WPA_PSK to connect to WEP/WPA networks */
 	uint32         rssi_5g_adjustment = 3;      /**< The RSSI value of the 5G AP is within the rssi_5g_adjustment range compared to the 2G AP, the 5G AP will be given priority for connection. */
 }
 
 message wifi_pmf_config {
-	bool           capable = 1;                 /**< Deprecated variable. Device will always connect in PMF mode if other device also advertizes PMF capability. */
-	bool           required = 2;                /**< Advertizes that Protected Management Frame is required. Device will not associate to non-PMF capable devices. */
+	bool           capable = 1;                 /**< Deprecated variable. Device will always connect in PMF mode if other device also advertises PMF capability. */
+	bool           required = 2;                /**< Advertises that Protected Management Frame is required. Device will not associate to non-PMF capable devices. */
 }
 
 message wifi_bss_max_idle_config {
@@ -609,7 +649,7 @@ Units: AP beacon intervals. Defaults to 3 if set to 0. */
 	int32               sort_method = 8;        /**< sort the connect AP in the list by rssi or security mode */
 	wifi_scan_threshold threshold = 9;          /**< When sort_method is set, only APs which have an auth mode that is more secure
 												  than the selected auth mode and a signal stronger than the minimum RSSI will be used. */
-	wifi_pmf_config     pmf_cfg = 10;           /**< Configuration for Protected Management Frame. Will be advertized in RSN Capabilities in RSN IE. */
+	wifi_pmf_config     pmf_cfg = 10;           /**< Configuration for Protected Management Frame. Will be advertised in RSN Capabilities in RSN IE. */
 	//uint32_t rm_enabled:1;                    /**< Whether Radio Measurements are enabled for the connection */
 	//uint32_t btm_enabled:1;                   /**< Whether BSS Transition Management is enabled for the connection */
 	//uint32_t mbo_enabled:1;                   /**< Whether MBO is enabled for the connection */
@@ -621,7 +661,7 @@ Units: AP beacon intervals. Defaults to 3 if set to 0. */
 	int32               sae_pwe_h2e = 12;       /**< Whether SAE hash to element is enabled */
 	uint32              failure_retry_cnt = 13; /**< Number of connection retries station will do before moving to next AP.
 												  scan_method should be set as WIFI_ALL_CHANNEL_SCAN to use this config.
-												  Note: Enabling this may cause connection time to increase incase best AP doesn't behave properly. */
+												  Note: Enabling this may cause connection time to increase in case best AP doesn't behave properly. */
 	//uint32_t he_dcm_set:1;                                        /**< Whether DCM max.constellation for transmission and reception is set. */
 	//uint32_t he_dcm_max_constellation_tx:2;                       /**< Indicate the max.constellation for DCM in TB PPDU the STA supported. 0: not supported. 1: BPSK, 2: QPSK, 3: 16-QAM. The default value is 3. */
 	//uint32_t he_dcm_max_constellation_rx:2;                       /**< Indicate the max.constellation for DCM in both Data field and HE-SIG-B field the STA supported. 0: not supported. 1: BPSK, 2: QPSK, 3: 16-QAM. The default value is 3. */
@@ -911,6 +951,23 @@ message esp_app_desc {
 	uint32 mmu_page_size = 12;   /*!< MMU page size in log base 2 format */
 	bytes reserv3 = 13;          /*!< reserv3 */
 	bytes reserv2 = 14;          /*!< reserv2 */
+}
+
+// heap size threshold based on memory capability
+message heap_size_threshold {
+	uint32 threshold_mem_dma = 1;
+	uint32 threshold_mem_8bit = 2;
+}
+
+message mem_info {
+	uint32 free_size = 1;          // current heap free size
+	uint32 largest_free_block = 2; // largest free block of memory able to be allocated
+}
+
+// heap info based on capability
+message heap_info {
+	mem_info mem_dma = 1;
+	mem_info mem_8bit = 2;
 }
 
 /* internal supporting structures for Rpc */
@@ -1318,6 +1375,17 @@ message Rpc_Resp_WifiStaGetRssi {
 	int32 rssi = 2;
 }
 
+message Rpc_Req_WifiScanParams {
+	RpcCmd cmd = 1;
+	wifi_scan_default_params config = 2;
+	bool is_config_null = 3;
+}
+
+message Rpc_Resp_WifiScanParams {
+	int32 resp = 1;
+	wifi_scan_default_params config = 2;
+}
+
 message Rpc_Req_WifiStaGetAid {
 }
 
@@ -1481,6 +1549,11 @@ message Rpc_Resp_GetCoprocessorFwVersion {
 	uint32 major1 = 2;
 	uint32 minor1 = 3;
 	uint32 patch1 = 4;
+	int32 revision = 5;
+	int32 prerelease = 6;
+	int32 build = 7;
+	uint32 chip_id = 8;    // from sdkconfig->CONFIG_IDF_FIRMWARE_CHIP_ID
+	bytes idf_target = 9;  // from sdkconfig->CONFIG_IDF_TARGET
 }
 
 message Rpc_Req_SetDhcpDnsStatus {
@@ -1596,6 +1669,27 @@ message Rpc_Resp_FeatureControl {
 	RpcFeatureOption option = 4;
 };
 
+/* Configures the memory threshold for heap space monitoring for both internal and external ram
+   Set values to 0 to disable
+*/
+message Rpc_Req_MemMonitor {
+	Rpc_MemMonitorConfig config = 1;   // configure monitor
+	bool report_always = 2;            // report the memory used based on the set interval. When disabled, report only when heap memory falls below a set value
+	uint32 interval_sec = 3;           // interval between heap checks, periodic reports (if enabled)
+	heap_size_threshold internal = 4;  // minimum reporting threshold for internal memory
+	heap_size_threshold external = 5;  // minimum reporting threshold for external memory
+}
+
+message Rpc_Resp_MemMonitor {
+	int32 resp = 1;
+	Rpc_MemMonitorConfig config = 2;
+	bool report_always = 3;
+	uint32 interval_sec = 4;
+	uint32 curr_total_heap_size = 5;   // current total free heap size
+	heap_info curr_internal = 6;       // current heap sizes for internal memory
+	heap_info curr_external = 7;       // current heap sizes for external memory
+}
+
 /** Event structure **/
 
 message Rpc_Event_WifiEventNoArgs {
@@ -1604,7 +1698,8 @@ message Rpc_Event_WifiEventNoArgs {
 }
 
 message Rpc_Event_ESPInit {
-	bytes init_data = 1;
+	bytes init_data = 1; // reserved
+	uint32 cp_reset_reason = 2;
 }
 
 message Rpc_Event_Heartbeat {
@@ -1639,6 +1734,111 @@ message Rpc_Event_StaConnected {
 message Rpc_Event_StaDisconnected {
 	int32 resp = 1;
 	wifi_event_sta_disconnected sta_disconnected = 2;
+}
+
+enum Rpc_GpioMode {
+	GPIO_MODE_DISABLE = 0;
+	GPIO_MODE_INPUT = 1;
+	GPIO_MODE_OUTPUT = 2;
+	GPIO_MODE_INPUT_OUTPUT = 3;
+}
+
+enum Rpc_GpioPullMode {
+	GPIO_PULL_NONE = 0;
+	GPIO_PULL_UP = 1;
+	GPIO_PULL_DOWN = 2;
+}
+
+enum Rpc_MemMonitorConfig {
+	MEMMONITOR_NO_CHANGE = 0; // don't change the monitor configuration
+	                          // - to get current memory values without modifying config
+	MEMMONITOR_DISABLE = 1;   // disable the monitor
+	MEMMONITOR_ENABLE = 2;    // (re)enable the monitor with new configuration
+}
+
+message Rpc_GpioConfig {
+	uint64 pin_bit_mask = 1;
+	Rpc_GpioMode mode = 2;
+	bool pull_up_en = 3;
+	bool pull_down_en = 4;
+	int32 intr_type = 5;
+}
+
+message Rpc_Req_GpioConfig {
+	Rpc_GpioConfig config = 1;
+}
+message Rpc_Resp_GpioConfig {
+	int32 resp = 1;
+}
+
+message Rpc_Req_GpioResetPin {
+	int32 gpio_num = 1;
+}
+message Rpc_Resp_GpioResetPin {
+	int32 resp = 1;
+}
+
+message Rpc_Req_GpioSetLevel {
+	int32 gpio_num = 1;
+	uint32 level = 2; // 0 or 1
+}
+message Rpc_Resp_GpioSetLevel {
+	int32 resp = 1;
+}
+
+message Rpc_Req_GpioGetLevel {
+	int32 gpio_num = 1;
+}
+message Rpc_Resp_GpioGetLevel {
+	int32 resp = 1;
+	uint32 level = 2;
+}
+
+message Rpc_Req_GpioSetDirection {
+	int32 gpio_num = 1;
+	Rpc_GpioMode mode = 2;
+}
+message Rpc_Resp_GpioSetDirection {
+	int32 resp = 1;
+}
+
+message Rpc_Req_GpioInputEnable {
+	int32 gpio_num = 1;
+}
+message Rpc_Resp_GpioInputEnable {
+	int32 resp = 1;
+}
+
+message Rpc_Req_GpioSetPullMode {
+	int32 gpio_num = 1;
+	Rpc_GpioPullMode pull = 2;
+}
+message Rpc_Resp_GpioSetPullMode {
+	int32 resp = 1;
+}
+
+/* Single RPC for external coex: cmd determines which fields are used */
+enum Rpc_ExtCoexCmd {
+	SetGpioPin = 0;
+	Disable = 1;
+	SetWorkMode = 2;
+	SetGrantDelay = 3;
+	SetValidateHigh = 4;
+}
+
+message Rpc_Req_ExtCoex {
+	uint32 cmd = 1;
+	uint32 set_gpio_wire_type = 2;
+	int32 set_gpio_request_pin = 3;
+	int32 set_gpio_priority_pin = 4;
+	int32 set_gpio_grant_pin = 5;
+	int32 set_gpio_tx_line_pin = 6;
+	uint32 set_work_mode = 7;
+	uint32 set_grant_delay_us = 8;
+	bool set_validate_high = 9;
+}
+message Rpc_Resp_ExtCoex {
+	int32 resp = 1;
 }
 
 message Rpc_Event_DhcpDnsStatus {
@@ -1908,6 +2108,33 @@ message Rpc_Event_WifiDppFail {
 	int32 reason = 2; // failure reason
 }
 
+/* Custom RPC messages for user-defined packed structures */
+message Rpc_Req_CustomRpc {
+	uint32 custom_msg_id = 1;  /* User-defined message ID */
+	bytes data = 2;            /* Raw packed data */
+}
+
+message Rpc_Resp_CustomRpc {
+	int32 resp = 1;            /* Response status */
+	uint32 custom_msg_id = 2;  /* User-defined message ID (echoed from request) */
+	bytes data = 3;            /* Raw packed response data */
+}
+
+message Rpc_Event_CustomRpc {
+	int32 resp = 1;            /* Event status */
+	uint32 custom_event_id = 2; /* User-defined event ID */
+	bytes data = 3;            /* Raw packed event data */
+}
+
+/* Sent when heap size is below a set low level marks */
+message Rpc_Event_MemMonitor {
+	int32 resp = 1;
+	uint32 curr_total_free_heap_size = 2;  // current total heap size
+	uint32 curr_min_free_heap_size = 3;    // current minimum heap size
+	heap_info curr_internal = 4;           // current heap levels for internal memory
+	heap_info curr_external = 5;           // current heap levels for external memory
+}
+
 message Rpc {
 	/* msg_type could be req, resp or Event */
 	RpcType msg_type = 1;
@@ -1932,12 +2159,12 @@ message Rpc {
 		Rpc_Req_SuppDppStartListen          req_supp_dpp_start_listen         = 264;
 		Rpc_Req_SuppDppStopListen           req_supp_dpp_stop_listen          = 265;
 
-		//Rpc_Req_StartSoftAP                 req_start_softap                  = 267;
-		//Rpc_Req_SoftAPConnectedSTA          req_softap_connected_stas_list    = 268;
-		//Rpc_Req_GetStatus                   req_stop_softap                   = 269;
 		Rpc_Req_OTAActivate                 req_ota_activate                  = 266;
 
 		Rpc_Req_AppGetDesc                  req_app_get_desc                  = 267;
+
+		Rpc_Req_MemMonitor                  req_mem_monitor                   = 268;
+		Rpc_Req_WifiScanParams              req_wifi_scan_params              = 269;
 
 		Rpc_Req_SetPs                       req_wifi_set_ps                   = 270;
 		Rpc_Req_GetPs                       req_wifi_get_ps                   = 271;
@@ -2048,6 +2275,18 @@ message Rpc {
 
 		Rpc_Req_FeatureControl              req_feature_control               = 387;
 
+		Rpc_Req_CustomRpc                   req_custom_rpc                    = 388;
+
+		Rpc_Req_GpioConfig                  req_gpio_config                   = 389;
+		Rpc_Req_GpioResetPin                req_gpio_reset_pin                = 390;
+		Rpc_Req_GpioSetLevel                req_gpio_set_level                = 391;
+		Rpc_Req_GpioGetLevel                req_gpio_get_level                = 392;
+		Rpc_Req_GpioSetDirection            req_gpio_set_direction            = 393;
+		Rpc_Req_GpioInputEnable             req_gpio_input_enable             = 394;
+		Rpc_Req_GpioSetPullMode             req_gpio_set_pull_mode            = 395;
+
+		Rpc_Req_ExtCoex                     req_ext_coex                      = 396;
+
 		/** Responses **/
 		Rpc_Resp_GetMacAddress              resp_get_mac_address               = 513;
 		Rpc_Resp_SetMacAddress              resp_set_mac_address               = 514;
@@ -2060,13 +2299,12 @@ message Rpc {
 		Rpc_Resp_SuppDppStartListen         resp_supp_dpp_start_listen         = 520;
 		Rpc_Resp_SuppDppStopListen          resp_supp_dpp_stop_listen          = 521;
 
-		//Rpc_Resp_SetSoftAPVendorSpecificIE  resp_set_softap_vendor_specific_ie = 522;
-		//Rpc_Resp_StartSoftAP                resp_start_softap                  = 523;
-		//Rpc_Resp_SoftAPConnectedSTA         resp_softap_connected_stas_list    = 524;
-		//Rpc_Resp_GetStatus                  resp_stop_softap                   = 525;
 		Rpc_Resp_OTAActivate                resp_ota_activate                  = 522;
 
 		Rpc_Resp_AppGetDesc                 resp_app_get_desc                  = 523;
+
+		Rpc_Resp_MemMonitor                 resp_mem_monitor                   = 524;
+		Rpc_Resp_WifiScanParams             resp_wifi_scan_params              = 525;
 
 		Rpc_Resp_SetPs                      resp_wifi_set_ps                   = 526;
 		Rpc_Resp_GetPs                      resp_wifi_get_ps                   = 527;
@@ -2176,6 +2414,18 @@ message Rpc {
 
 		Rpc_Resp_FeatureControl             resp_feature_control               = 643;
 
+		Rpc_Resp_CustomRpc                  resp_custom_rpc                    = 644;
+
+		Rpc_Resp_GpioConfig               	resp_gpio_config                   = 645;
+		Rpc_Resp_GpioResetPin               resp_gpio_reset                    = 646;
+		Rpc_Resp_GpioSetLevel               resp_gpio_set_level                = 647;
+		Rpc_Resp_GpioGetLevel               resp_gpio_get_level                = 648;
+		Rpc_Resp_GpioSetDirection           resp_gpio_set_direction            = 649;
+		Rpc_Resp_GpioInputEnable            resp_gpio_input_enable             = 650;
+		Rpc_Resp_GpioSetPullMode            resp_gpio_set_pull_mode            = 651;
+
+		Rpc_Resp_ExtCoex                    resp_ext_coex                     = 652;
+
 		/** Notifications **/
 		Rpc_Event_ESPInit                   event_esp_init                     = 769;
 		Rpc_Event_Heartbeat                 event_heartbeat                    = 770;
@@ -2196,5 +2446,8 @@ message Rpc {
 		Rpc_Event_WifiDppUriReady           event_wifi_dpp_uri_ready           = 785;
 		Rpc_Event_WifiDppCfgRecvd           event_wifi_dpp_cfg_recvd           = 786;
 		Rpc_Event_WifiDppFail               event_wifi_dpp_fail                = 787;
+
+		Rpc_Event_CustomRpc                 event_custom_rpc                   = 788;
+		Rpc_Event_MemMonitor                event_mem_monitor                  = 789;
 	}
 }

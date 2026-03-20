@@ -717,7 +717,7 @@ static esp_err_t esp_spi_hd_reset(interface_handle_t *handle)
 static int32_t esp_spi_hd_write(interface_handle_t *handle, interface_buffer_handle_t *buf_handle)
 {
 	esp_err_t ret = ESP_OK;
-	int32_t total_len = 0;
+	uint32_t total_len = 0;
 	uint8_t* sendbuf = NULL;
 	uint16_t offset = sizeof(struct esp_payload_header);
 	struct esp_payload_header *header = NULL;
@@ -920,7 +920,7 @@ void generate_startup_event(uint8_t cap, uint32_t ext_cap)
 	ret = spi_slave_hd_queue_trans(SPI_HOST, SPI_SLAVE_CHAN_TX,
 				tx_trans, portMAX_DELAY);
 	if (ret != ESP_OK) {
-		ESP_LOGE(TAG , "statup: spi hd slave transmit error, ret : 0x%"PRIx16, ret);
+		ESP_LOGE(TAG , "startup: spi hd slave transmit error, ret : 0x%"PRIx16, ret);
 		spi_hd_buffer_tx_free(buf_handle.payload);
 		spi_hd_trans_tx_free(tx_trans);
 	}
