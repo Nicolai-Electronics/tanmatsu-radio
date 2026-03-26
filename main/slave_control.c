@@ -24,6 +24,7 @@
 #include "esp_image_format.h"
 #include "esp_partition.h"
 
+#include "airplane_mode.h"
 #include "slave_control.h"
 #include "esp_hosted_rpc.pb-c.h"
 #include "esp_ota_ops.h"
@@ -530,6 +531,11 @@ static esp_err_t req_feature_control(Rpc *req, Rpc *resp, void *priv_data)
 		switch (req_payload->command) {
 
 		case RPC_FEATURE_COMMAND__Feature_Command_BT_Init:
+			if (airplane_mode_is_enabled()) {
+				ESP_LOGW(TAG, "BT init blocked: airplane mode is active");
+				resp_payload->resp = ESP_ERR_NOT_ALLOWED;
+				break;
+			}
 			RPC_RET_FAIL_IF(init_bluetooth());
 			break;
 
@@ -542,6 +548,11 @@ static esp_err_t req_feature_control(Rpc *req, Rpc *resp, void *priv_data)
 		}
 
 		case RPC_FEATURE_COMMAND__Feature_Command_BT_Enable:
+			if (airplane_mode_is_enabled()) {
+				ESP_LOGW(TAG, "BT enable blocked: airplane mode is active");
+				resp_payload->resp = ESP_ERR_NOT_ALLOWED;
+				break;
+			}
 			RPC_RET_FAIL_IF(enable_bluetooth());
 			break;
 
@@ -1494,6 +1505,17 @@ static esp_err_t esp_rpc_command_dispatcher(
 		goto err_not_supported;
 	} else {
 		ESP_LOGI(TAG, "RPC Req [0x%x] is supported, index %d", req->msg_id, req_index);
+	}
+
+	// Block WiFi-activating commands when airplane mode is enabled
+	if (airplane_mode_is_enabled()) {
+		if (req->msg_id == RPC_ID__Req_WifiInit ||
+		    req->msg_id == RPC_ID__Req_WifiStart ||
+		    req->msg_id == RPC_ID__Req_WifiConnect ||
+		    req->msg_id == RPC_ID__Req_WifiScanStart) {
+			ESP_LOGW(TAG, "WiFi request [0x%x] blocked: airplane mode is active", req->msg_id);
+			goto err_not_supported;
+		}
 	}
 
 	ret = req_table[req_index].command_handler(req, resp, priv_data);

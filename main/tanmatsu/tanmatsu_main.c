@@ -1,3 +1,4 @@
+#include "airplane_mode.h"
 #include "driver/gpio.h"
 #include "driver/spi_common.h"
 #include "esp_err.h"
@@ -53,6 +54,12 @@ void app_main(void) {
     gpio_install_isr_service(0);
 
     esp_hosted_coprocessor_init();
+
+    res = airplane_mode_init();
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize airplane mode: %s", esp_err_to_name(res));
+        // (ignore errors, continue)
+    }
 
     res = esp_hosted_register_custom_callback(TANMATSU_EVENT_ECHO, echo_protocol_packet_callback);
     if (res != ESP_OK) {

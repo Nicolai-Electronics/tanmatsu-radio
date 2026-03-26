@@ -4,6 +4,7 @@
 #include "lora_protocol_server.h"
 #include <stddef.h>
 #include <stdio.h>
+#include "airplane_mode.h"
 #include "esp_err.h"
 #include "esp_hosted_peer_data.h"
 #include "esp_log.h"
@@ -104,6 +105,10 @@ esp_err_t apply_mode(uint8_t* mode_data, size_t mode_length) {
         case LORA_PROTOCOL_MODE_FS:
             return sx126x_set_op_mode_fs(&lora_handle);
         case LORA_PROTOCOL_MODE_TX:
+            if (airplane_mode_is_enabled()) {
+                ESP_LOGW(TAG, "TX mode rejected: airplane mode is active");
+                return ESP_ERR_NOT_ALLOWED;
+            }
             ESP_LOGE(TAG, "Can not set TX mode directly, host must send data to transmit");
             return ESP_ERR_INVALID_ARG;
         case LORA_PROTOCOL_MODE_RX:
@@ -479,6 +484,11 @@ void lora_protocol_handle_packet(uint8_t* request_buffer, size_t request_length)
             send_nack(packet->sequence_number);  // We don't expect to receive this from the host, so we NACK it
             break;
         case LORA_PROTOCOL_TYPE_PACKET_TX:
+            if (airplane_mode_is_enabled()) {
+                ESP_LOGW(TAG, "LoRa TX rejected: airplane mode is active");
+                send_nack(packet->sequence_number);
+                break;
+            }
             if (transmit_packet(request_buffer + sizeof(lora_protocol_header_t),
                                 request_length - sizeof(lora_protocol_header_t)) == ESP_OK) {
                 send_ack(packet->sequence_number);
