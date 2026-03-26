@@ -1,4 +1,4 @@
-PORT ?= /dev/ttyACM0
+RADIOPORT ?= $(or $(PORT),/dev/ttyACM0)
 
 IDF_PATH ?= $(shell cat .IDF_PATH 2>/dev/null || echo `pwd`/esp-idf)
 IDF_TOOLS_PATH ?= $(shell cat .IDF_TOOLS_PATH 2>/dev/null || echo `pwd`/esp-idf-tools)
@@ -104,20 +104,20 @@ merge: build
 .PHONY: flash
 flash: build
 	source "$(IDF_PATH)/export.sh" && \
-	idf.py -B $(BUILD) flash -p $(PORT)
+	idf.py -B $(BUILD) flash -p $(RADIOPORT)
 
 .PHONY: flashmonitor
 flashmonitor: build
 	source "$(IDF_PATH)/export.sh" && \
-	idf.py -B $(BUILD) flash -p $(PORT) monitor
+	idf.py -B $(BUILD) flash -p $(RADIOPORT) monitor
 
 .PHONY: erase
 erase:
-	source "$(IDF_PATH)/export.sh" && idf.py -B $(BUILD) erase-flash -p $(PORT)
+	source "$(IDF_PATH)/export.sh" && idf.py -B $(BUILD) erase-flash -p $(RADIOPORT)
 
 .PHONY: monitor
 monitor:
-	source "$(IDF_PATH)/export.sh" && idf.py -B $(BUILD) monitor -p $(PORT)
+	source "$(IDF_PATH)/export.sh" && idf.py -B $(BUILD) monitor -p $(RADIOPORT)
 
 .PHONY: openocd
 openocd:
