@@ -10,7 +10,7 @@ MAKEFLAGS += --silent
 
 SHELL := /usr/bin/env bash
 
-DEVICE ?= tanmatsu # Default target device
+DEVICE ?= tanmatsu
 BUILD ?= build/$(DEVICE)
 
 export IDF_TOOLS_PATH
@@ -164,3 +164,8 @@ distrib:
 .PHONY: oldmerge
 oldmerge:
 	python -m esptool --chip esp32c6 merge_bin -o build/merged.bin --flash_size 8MB --flash_freq 80m 0x0 build/tanmatsu/bootloader/bootloader.bin 0x8000 build/tanmatsu/partition_table/partition-table.bin 0xd000 build/tanmatsu/ota_data_initial.bin 0x10000 build/tanmatsu/tanmatsu-radio.bin
+
+.PHONY: compress
+compress:
+	zlib-flate -compress=9 > $(BUILD)/merged-binary.zz < $(BUILD)/merged-binary.bin
+	echo "[{\"file\": "merged-binary.zz", \"offset\": 0, \"size\": $$(wc -c $(BUILD)/merged-binary.bin | awk '{print $$1}')}]"
