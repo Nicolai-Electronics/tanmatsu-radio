@@ -168,4 +168,4 @@ oldmerge:
 .PHONY: compress
 compress:
 	zlib-flate -compress=9 > $(BUILD)/merged-binary.zz < $(BUILD)/merged-binary.bin
-	echo "[{\"file\": "merged-binary.zz", \"offset\": 0, \"size\": $$(wc -c $(BUILD)/merged-binary.bin | awk '{print $$1}')}]"
+	echo "[{\"file\": \"merged-binary.zz\", \"offset\": 0, \"size\": $$(wc -c $(BUILD)/merged-binary.bin | awk '{print $$1}')}]"
