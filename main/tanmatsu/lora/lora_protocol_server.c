@@ -239,8 +239,17 @@ static esp_err_t apply_config(uint8_t* config_data, size_t config_length) {
             return ESP_ERR_INVALID_ARG;
     }
 
+    ESP_LOGI(TAG, "Coding rate %d %u", config_params->coding_rate, coding_rate);
+
+    // Auto-enforce LDRO per SX126x datasheet: required when symbol duration > 16ms
+    // T_sym_ms = 2^SF / BW_kHz. Threshold: 2^SF / BW_kHz > 16 → 2^SF > 16 * BW_kHz
+    bool required_ldro = ((uint32_t)(1U << config_params->spreading_factor) > 16U * config_params->bandwidth);
+    if (required_ldro) {
+        current_config.low_data_rate_optimization = true;
+    }
+
     res = sx126x_set_modulation_params_lora(&lora_handle, spreading_factor, bandwidth, coding_rate,
-                                            config_params->low_data_rate_optimization);
+                                            config_params->low_data_rate_optimization | required_ldro);
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Failed to set LoRa modulation parameters: %s", esp_err_to_name(res));
         return res;
@@ -258,6 +267,15 @@ static esp_err_t apply_config(uint8_t* config_data, size_t config_length) {
         ESP_LOGE(TAG, "Failed to set LoRa sync word and control bits: %s", esp_err_to_name(res));
         return res;
     }
+
+    ESP_LOGI(TAG, "Spreading factor %d %u", config_params->spreading_factor, spreading_factor);
+    ESP_LOGI(TAG, "Bandwidth %d %u", config_params->bandwidth, bandwidth);
+    ESP_LOGI(TAG, "Preamble length: %u", config_params->preamble_length);
+    ESP_LOGI(TAG, "CRC enabled: %u", config_params->crc_enabled);
+    ESP_LOGI(TAG, "Invert iq: %u", config_params->invert_iq);
+    ESP_LOGI(TAG, "Sync word: %u", config_params->sync_word);
+    ESP_LOGI(TAG, "LDRO requested: %u", config_params->low_data_rate_optimization);
+    ESP_LOGI(TAG, "LDRO required: %u", required_ldro);
 
     uint8_t pa_duty_cycle = 0x04;
     uint8_t hp_max        = 0x07;   // +22 dBm
@@ -359,7 +377,7 @@ static uint32_t lora_calculate_tx_time_ms(const lora_protocol_config_params_t* c
     // Symbol duration: T_s = 2^SF / BW_kHz  (result in ms)
     // ToA (ms) = total_symbols * 2^SF * 1000 / BW_kHz
     // Use uint64_t to avoid overflow with large preambles or high SF.
-    uint64_t t_ms = ((uint64_t)total_symbols * ((uint64_t)1 << sf) * 1000ULL) / (uint64_t)bw;
+    uint64_t t_ms = ((uint64_t)total_symbols * ((uint64_t)1 << sf)) / (uint64_t)bw;
 
     return (t_ms > UINT32_MAX) ? UINT32_MAX : (uint32_t)t_ms;
 }
@@ -442,6 +460,7 @@ static esp_err_t transmit_packet(uint8_t* packet_data, size_t packet_length) {
     // Wait for transmission to complete (wait for TX_DONE event)
     uint32_t tx_time_ms = lora_calculate_tx_time_ms(&current_config, packet_length);
     uint32_t timeout_ms = (uint32_t)((uint64_t)tx_time_ms * 5 / 4 + 500);  // 25% margin + 500 ms overhead
+    ESP_LOGI(TAG, "Waiting for transmit to complete within %" PRIu32 "ms...", timeout_ms);
     if (xSemaphoreTake(tx_semaphore, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
         ESP_LOGE(TAG, "Timeout waiting for LoRa transmission to complete");
         return ESP_ERR_TIMEOUT;
