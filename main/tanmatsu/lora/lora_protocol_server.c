@@ -4,6 +4,8 @@
 #include "lora_protocol_server.h"
 #include <stddef.h>
 #include <stdio.h>
+#include <string.h>
+#include "esp_app_desc.h"
 #include "esp_err.h"
 #include "esp_hosted_peer_data.h"
 #include "esp_log.h"
@@ -350,6 +352,27 @@ static void send_status(uint32_t sequence_number) {
     generate_custom_event(TANMATSU_EVENT_LORA, reply_buffer, status_length);
 }
 
+// Respond with the app firmware version string from esp_app_get_description().
+static void send_fw_version(uint32_t sequence_number) {
+    lora_protocol_header_t* hdr = (lora_protocol_header_t*)reply_buffer;
+    hdr->sequence_number        = sequence_number;
+    hdr->type                   = LORA_PROTOCOL_TYPE_GET_FW_VERSION;
+    lora_protocol_fw_version_params_t* params =
+        (lora_protocol_fw_version_params_t*)(reply_buffer + sizeof(lora_protocol_header_t));
+
+    memset(params->version, 0, sizeof(params->version));
+    const esp_app_desc_t* desc = esp_app_get_description();
+    if (desc && desc->version[0]) {
+        strncpy(params->version, desc->version, sizeof(params->version) - 1);
+    } else {
+        strncpy(params->version, "UNKNOWN", sizeof(params->version) - 1);
+    }
+    params->version[sizeof(params->version) - 1] = '\0';
+
+    generate_custom_event(TANMATSU_EVENT_LORA, reply_buffer,
+                          sizeof(lora_protocol_header_t) + sizeof(lora_protocol_fw_version_params_t));
+}
+
 static uint32_t lora_calculate_tx_time_ms(const lora_protocol_config_params_t* config, uint8_t payload_length) {
     if (config == NULL || config->bandwidth == 0 || config->spreading_factor < 5 || config->spreading_factor > 12) {
         return 10000;  // Invalid configuration will yield a 10 second timeout
@@ -538,6 +561,9 @@ void lora_protocol_handle_packet(uint8_t* request_buffer, size_t request_length)
             } else {
                 send_nack(packet->sequence_number);
             }
+            break;
+        case LORA_PROTOCOL_TYPE_GET_FW_VERSION:
+            send_fw_version(packet->sequence_number);
             break;
         default:
             ESP_LOGW(TAG, "Unknown command: %d\r\n", packet->type);
