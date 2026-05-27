@@ -4,6 +4,7 @@
 #include "lora_protocol_server.h"
 #include <stddef.h>
 #include <stdio.h>
+#include <string.h>
 #include "esp_err.h"
 #include "esp_hosted_peer_data.h"
 #include "esp_log.h"
@@ -531,6 +532,26 @@ void lora_protocol_handle_packet(uint8_t* request_buffer, size_t request_length)
         case LORA_PROTOCOL_TYPE_PACKET_RX:
             send_nack(packet->sequence_number);  // We don't expect to receive this from the host, so we NACK it
             break;
+        case LORA_PROTOCOL_TYPE_GET_RSSI_INST: {
+            float     signal_power = 0.0f;
+            esp_err_t rssi_res     = sx126x_get_rssi_inst(&lora_handle, &signal_power);
+            if (rssi_res == ESP_OK) {
+                lora_protocol_header_t* hdr = (lora_protocol_header_t*)reply_buffer;
+                hdr->sequence_number        = packet->sequence_number;
+                hdr->type                   = LORA_PROTOCOL_TYPE_GET_RSSI_INST;
+                int raw_int                 = (int)(-2.0f * signal_power + 0.5f);
+                if (raw_int < 0)   raw_int = 0;
+                if (raw_int > 255) raw_int = 255;
+                lora_protocol_rssi_inst_params_t* params =
+                    (lora_protocol_rssi_inst_params_t*)(reply_buffer + sizeof(lora_protocol_header_t));
+                params->rssi_raw = (uint8_t)raw_int;
+                generate_custom_event(TANMATSU_EVENT_LORA, reply_buffer,
+                                      sizeof(lora_protocol_header_t) + sizeof(lora_protocol_rssi_inst_params_t));
+            } else {
+                send_nack(packet->sequence_number);
+            }
+            break;
+        }
         case LORA_PROTOCOL_TYPE_PACKET_TX:
             if (transmit_packet(request_buffer + sizeof(lora_protocol_header_t),
                                 request_length - sizeof(lora_protocol_header_t)) == ESP_OK) {
@@ -760,25 +781,42 @@ void read_data(void) {
         return;
     }
 
-    uint8_t                 data[sizeof(lora_protocol_header_t) + 256] = {0};
-    lora_protocol_header_t* lora_packet                                = (lora_protocol_header_t*)data;
-    uint8_t*                packet                                     = &data[sizeof(lora_protocol_header_t)];
-    res = sx126x_read_buffer(&lora_handle, start_pointer, packet, packet_length);
+    uint8_t   pkt_rssi_raw        = 0;
+    uint8_t   pkt_snr_raw         = 0;
+    uint8_t   pkt_signal_rssi_raw = 0;
+    esp_err_t stats_res =
+        sx126x_get_packet_status_lora(&lora_handle, &pkt_rssi_raw, &pkt_snr_raw, &pkt_signal_rssi_raw);
+    if (stats_res != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to get LoRa packet status: %s", esp_err_to_name(stats_res));
+        pkt_rssi_raw = pkt_snr_raw = pkt_signal_rssi_raw = 0;
+    }
+
+    uint8_t                      data[sizeof(lora_protocol_header_t) + sizeof(lora_protocol_lora_packet_t) + 255] = {0};
+    lora_protocol_header_t*      header      = (lora_protocol_header_t*)data;
+    lora_protocol_lora_packet_t* lora_packet =
+        (lora_protocol_lora_packet_t*)(data + sizeof(lora_protocol_header_t));
+
+    res = sx126x_read_buffer(&lora_handle, start_pointer, lora_packet->data, packet_length);
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Failed to read packet from LoRa radio: %s", esp_err_to_name(res));
         return;
     }
 
-    printf("Packet: ");
+    lora_packet->stats.rssi_pkt_raw        = pkt_rssi_raw;
+    lora_packet->stats.snr_pkt_raw         = (int8_t)pkt_snr_raw;
+    lora_packet->stats.signal_rssi_pkt_raw = pkt_signal_rssi_raw;
+    lora_packet->length                    = packet_length;
+
+    printf("Packet (RSSI=-%d/2 SNR=%d/4 SigRSSI=-%d/2): ", pkt_rssi_raw, (int8_t)pkt_snr_raw, pkt_signal_rssi_raw);
     for (size_t i = 0; i < packet_length; i++) {
-        printf("%02X ", packet[i]);
+        printf("%02X ", lora_packet->data[i]);
     }
     printf("\r\n");
 
-    lora_packet->sequence_number = 0;  // Sequence number is not used
-    lora_packet->type            = LORA_PROTOCOL_TYPE_PACKET_RX;
+    header->sequence_number = 0;  // Sequence number is not used
+    header->type            = LORA_PROTOCOL_TYPE_PACKET_RX;
 
-    size_t total_length = sizeof(lora_protocol_header_t) + packet_length;
+    size_t total_length = sizeof(lora_protocol_header_t) + sizeof(lora_protocol_lora_packet_t) + packet_length;
     generate_custom_event(TANMATSU_EVENT_LORA, data, total_length);
 }
 
