@@ -5,15 +5,16 @@
 #define LORA_PROTOCOL_VERSION_STRING_LENGTH 16
 
 typedef enum {
-    LORA_PROTOCOL_TYPE_ACK        = 0x00,
-    LORA_PROTOCOL_TYPE_NACK       = 0x01,
-    LORA_PROTOCOL_TYPE_GET_MODE   = 0x02,
-    LORA_PROTOCOL_TYPE_SET_MODE   = 0x03,
-    LORA_PROTOCOL_TYPE_GET_CONFIG = 0x04,
-    LORA_PROTOCOL_TYPE_SET_CONFIG = 0x05,
-    LORA_PROTOCOL_TYPE_GET_STATUS = 0x06,
-    LORA_PROTOCOL_TYPE_PACKET_RX  = 0x07,
-    LORA_PROTOCOL_TYPE_PACKET_TX  = 0x08,
+    LORA_PROTOCOL_TYPE_ACK           = 0x00,
+    LORA_PROTOCOL_TYPE_NACK          = 0x01,
+    LORA_PROTOCOL_TYPE_GET_MODE      = 0x02,
+    LORA_PROTOCOL_TYPE_SET_MODE      = 0x03,
+    LORA_PROTOCOL_TYPE_GET_CONFIG    = 0x04,
+    LORA_PROTOCOL_TYPE_SET_CONFIG    = 0x05,
+    LORA_PROTOCOL_TYPE_GET_STATUS    = 0x06,
+    LORA_PROTOCOL_TYPE_PACKET_RX     = 0x07,
+    LORA_PROTOCOL_TYPE_PACKET_TX     = 0x08,
+    LORA_PROTOCOL_TYPE_GET_RSSI_INST = 0x09,
 } lora_protocol_packet_type_t;
 
 typedef enum {
@@ -54,10 +55,25 @@ typedef struct {
     char                 version_string[LORA_PROTOCOL_VERSION_STRING_LENGTH];
 } __attribute__((packed)) lora_protocol_status_params_t;
 
+// Per-packet RSSI/SNR statistics from the SX126x.
+// Conversion: rssi_dbm = -rssi_pkt_raw/2, snr_db = snr_pkt_raw/4, signal_rssi_dbm = -signal_rssi_pkt_raw/2.
 typedef struct {
-    uint8_t length;
-    uint8_t data[];
+    uint8_t rssi_pkt_raw;
+    int8_t  snr_pkt_raw;
+    uint8_t signal_rssi_pkt_raw;
+} __attribute__((packed)) lora_protocol_packet_stats_t;
+
+// Payload for PACKET_RX events emitted by the radio.
+typedef struct {
+    lora_protocol_packet_stats_t stats;
+    uint8_t                      length;
+    uint8_t                      data[];
 } __attribute__((packed)) lora_protocol_lora_packet_t;
+
+// Response payload for GET_RSSI_INST (instant RSSI, e.g. for noise floor measurement).
+typedef struct {
+    uint8_t rssi_raw;  // dBm = -rssi_raw/2
+} __attribute__((packed)) lora_protocol_rssi_inst_params_t;
 
 typedef struct {
     uint32_t sequence_number;
