@@ -6,6 +6,7 @@
 #include "esp_hosted_coprocessor.h"
 #include "esp_hosted_peer_data.h"
 #include "esp_log.h"
+#include "ieee802154_protocol_server.h"
 #include "ir_protocol_server.h"
 #include "lora_protocol_server.h"
 #include "nvs_flash.h"
@@ -65,6 +66,12 @@ void app_main(void) {
     res = system_protocol_initialize();
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize system protocol: %s", esp_err_to_name(res));
+        // (ignore errors, continue)
+    }
+
+    res = ieee802154_protocol_initialize();
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize IEEE802.15.4 protocol: %s", esp_err_to_name(res));
         // (ignore errors, continue)
     }
 
