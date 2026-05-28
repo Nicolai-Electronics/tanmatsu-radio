@@ -62,7 +62,7 @@ static void ir_protocol_packet_callback(uint32_t msg_id, const uint8_t* data, si
     ESP_ERROR_CHECK(rmt_transmit(tx_channel, nec_encoder, scan_code, sizeof(ir_nec_scan_code_t), &transmit_config));
 }
 
-esp_err_t ir_initialize(void) {
+esp_err_t infrared_protocol_initialize(void) {
     esp_err_t res;
 
     res = init_ir();

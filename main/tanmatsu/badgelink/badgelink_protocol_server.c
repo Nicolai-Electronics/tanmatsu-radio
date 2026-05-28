@@ -23,7 +23,7 @@ static void badgelink_protocol_packet_callback(uint32_t msg_id, const uint8_t* d
     }
 }
 
-esp_err_t badgelink_initialize(void) {
+esp_err_t badgelink_protocol_initialize(void) {
     esp_err_t res = esp_hosted_register_custom_callback(TANMATSU_EVENT_BADGELINK, badgelink_protocol_packet_callback);
     if (res != ESP_OK) {
         return res;

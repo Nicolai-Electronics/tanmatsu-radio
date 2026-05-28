@@ -25,5 +25,5 @@ dependencies:
     matches:
       - if: "idf_version >5.3"
         version: "~1"
-  nicolaielectronics/sx126x:
-    version: "~0.0.3"
+  nicolaielectronics/tanmatsu-lora:
+    version: "~0.2.0"

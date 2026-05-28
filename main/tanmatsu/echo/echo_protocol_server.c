@@ -23,7 +23,7 @@ static void echo_protocol_packet_callback(uint32_t msg_id, const uint8_t* data, 
     }
 }
 
-esp_err_t echo_initialize(void) {
+esp_err_t echo_protocol_initialize(void) {
     esp_err_t res = esp_hosted_register_custom_callback(TANMATSU_EVENT_ECHO, echo_protocol_packet_callback);
     if (res != ESP_OK) {
         return res;

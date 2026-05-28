@@ -2,4 +2,4 @@
 
 #include "esp_err.h"
 
-esp_err_t echo_initialize(void);
+esp_err_t echo_protocol_initialize(void);
