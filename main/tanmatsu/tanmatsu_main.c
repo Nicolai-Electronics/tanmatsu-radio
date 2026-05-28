@@ -1,5 +1,7 @@
+#include "badgelink_protocol_server.h"
 #include "driver/gpio.h"
 #include "driver/spi_common.h"
+#include "echo_protocol_server.h"
 #include "esp_err.h"
 #include "esp_hosted_coprocessor.h"
 #include "esp_hosted_peer_data.h"
@@ -8,6 +10,7 @@
 #include "lora_protocol_server.h"
 #include "nvs_flash.h"
 #include "priv_events.h"
+#include "system_protocol_server.h"
 #include "tanmatsu_hardware.h"
 
 static const char* TAG = "tanmatsu";
@@ -26,19 +29,6 @@ static esp_err_t spi_initialize(void) {
     return spi_bus_initialize(BSP_LORA_BUS, &buscfg, SPI_DMA_CH_AUTO);
 }
 
-// Echo
-
-static void echo_protocol_packet_callback(uint32_t msg_id, const uint8_t* data, size_t data_len) {
-    if (msg_id != TANMATSU_EVENT_ECHO) {
-        ESP_LOGW(TAG, "Received message with unexpected ID: %d", msg_id);
-        return;
-    }
-    esp_err_t res = esp_hosted_send_custom_data(msg_id, data, data_len);
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to send echo event: %s", esp_err_to_name(res));
-    }
-}
-
 // Main
 
 void app_main(void) {
@@ -54,15 +44,27 @@ void app_main(void) {
 
     esp_hosted_coprocessor_init();
 
-    res = esp_hosted_register_custom_callback(TANMATSU_EVENT_ECHO, echo_protocol_packet_callback);
+    res = echo_initialize();
     if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to register echo protocol callback: %s", esp_err_to_name(res));
+        ESP_LOGE(TAG, "Failed to initialize echo protocol: %s", esp_err_to_name(res));
         // (ignore errors, continue)
     }
 
     res = ir_initialize();
     if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize IR: %s", esp_err_to_name(res));
+        ESP_LOGE(TAG, "Failed to initialize infrared protocol: %s", esp_err_to_name(res));
+        // (ignore errors, continue)
+    }
+
+    res = badgelink_initialize();
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize badgelink protocol: %s", esp_err_to_name(res));
+        // (ignore errors, continue)
+    }
+
+    res = system_initialize();
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize system protocol: %s", esp_err_to_name(res));
         // (ignore errors, continue)
     }
 
