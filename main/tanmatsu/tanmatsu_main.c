@@ -44,25 +44,25 @@ void app_main(void) {
 
     esp_hosted_coprocessor_init();
 
-    res = echo_initialize();
+    res = echo_protocol_initialize();
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize echo protocol: %s", esp_err_to_name(res));
         // (ignore errors, continue)
     }
 
-    res = ir_initialize();
+    res = infrared_protocol_initialize();
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize infrared protocol: %s", esp_err_to_name(res));
         // (ignore errors, continue)
     }
 
-    res = badgelink_initialize();
+    res = badgelink_protocol_initialize();
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize badgelink protocol: %s", esp_err_to_name(res));
         // (ignore errors, continue)
     }
 
-    res = system_initialize();
+    res = system_protocol_initialize();
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize system protocol: %s", esp_err_to_name(res));
         // (ignore errors, continue)
@@ -74,5 +74,9 @@ void app_main(void) {
         return;  // Can't start LoRa without working SPI bus
     }
 
-    start_lora_task();
+    res = lora_protocol_initialize();
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize LoRa protocol: %s", esp_err_to_name(res));
+        // (ignore errors, continue)
+    }
 }
