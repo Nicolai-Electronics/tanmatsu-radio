@@ -7,10 +7,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
-#include "interface.h"
 #include "priv_events.h"
-#include "sdio_slave_api.h"
-#include "tanmatsu_hardware.h"
 
 static const char* TAG = "system";
 
