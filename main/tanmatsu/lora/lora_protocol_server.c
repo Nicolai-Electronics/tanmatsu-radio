@@ -224,7 +224,7 @@ static void lora_packet_receive_task(void* pvParameters) {
         header->type                   = LORA_PROTOCOL_TYPE_PACKET_RX;
         lora_protocol_lora_packet_t* lora_packet =
             (lora_protocol_lora_packet_t*)(data + sizeof(lora_protocol_header_t));
-        if (lora_receive_packet(&lora_handle, lora_packet, portMAX_DELAY)) {
+        if (lora_receive_packet(&lora_handle, lora_packet, portMAX_DELAY) == ESP_OK) {
             size_t total_length =
                 sizeof(lora_protocol_header_t) + sizeof(lora_packet_stats_t) + sizeof(uint8_t) + lora_packet->length;
             generate_custom_event(TANMATSU_EVENT_LORA, data, total_length);
