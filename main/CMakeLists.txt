@@ -88,7 +88,7 @@ list(APPEND COMPONENT_ADD_INCLUDEDIRS "${common_dir}/utils")
 list(APPEND COMPONENT_SRCS "${common_dir}/utils/esp_hosted_cli.c")
 
 # Requires
-set(COMPONENT_REQUIRES esp_timer esptool_py bootloader main nvs_flash esp_rom esp_wifi wpa_supplicant protocomm protobuf-c driver app_update sx126x esp_driver_gpio esp_driver_spi)
+set(COMPONENT_REQUIRES esp_timer esptool_py bootloader main nvs_flash esp_rom esp_wifi wpa_supplicant protocomm protobuf-c driver app_update esp_driver_gpio esp_driver_spi)
 
 # Tanmatsu
 set(tanmatsu_dir "tanmatsu")
@@ -107,7 +107,6 @@ list(APPEND COMPONENT_ADD_INCLUDEDIRS "${tanmatsu_dir}/echo")
 list(APPEND COMPONENT_ADD_INCLUDEDIRS "${tanmatsu_dir}/infrared")
 list(APPEND COMPONENT_ADD_INCLUDEDIRS "${tanmatsu_dir}/system")
 list(APPEND COMPONENT_ADD_INCLUDEDIRS "${tanmatsu_dir}/ieee802154")
-list(APPEND COMPONENT_REQUIRES sx126x)
 
 register_component()
 
