@@ -58,7 +58,7 @@ partition_table_offset = 0x100000
 
 # Generate instructions
 partitions = read_partition_table("partition_tables/tanmatsu_radio.csv")
-firmware_offset = find_partition(partitions, "ota_0")["offset"]
+firmware_offset = find_partition(partitions, "factory")["offset"]
 
 bootloader_hash = calculate_md5("build/tanmatsu/bootloader/bootloader.bin")
 partitions_hash = calculate_md5("build/tanmatsu/partition_table/partition-table.bin")

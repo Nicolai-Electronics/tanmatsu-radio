@@ -13,7 +13,7 @@ jobs:
         uses: actions/checkout@v4
       - run: make prepare
       - run: make build DEVICE=${{ matrix.device }}
-      - run: make distrib
+      - run: make compress
       - run: mv build/${{ matrix.device }}/bootloader/*.bin build/${{ matrix.device }}/
       - run: mv build/${{ matrix.device }}/bootloader/*.elf build/${{ matrix.device }}/
       - run: mv build/${{ matrix.device }}/partition_table/*.bin build/${{ matrix.device }}/
@@ -24,9 +24,6 @@ jobs:
           path: |
             build/${{ matrix.device }}/*.bin
             build/${{ matrix.device }}/*.elf
-      - run: zlib-flate -compress=9 < build/${{ matrix.device }}/bootloader.bin > build/${{ matrix.device }}/bootloader.zz
-      - run: zlib-flate -compress=9 < build/${{ matrix.device }}/partition-table.bin > build/${{ matrix.device }}/partition-table.zz
-      - run: zlib-flate -compress=9 < build/${{ matrix.device }}/${{ matrix.device }}-radio.bin > build/${{ matrix.device }}/${{ matrix.device }}-radio.zz
       - name: Upload artifacts for OTA update
         uses: actions/upload-artifact@v4
         with:
