@@ -25,4 +25,4 @@ dependencies:
     matches:
       - if: "idf_version >5.3"
         version: "~1"
-  nicolaielectronics/tanmatsu-lora: "^0.2.1"
+  nicolaielectronics/tanmatsu-lora: "^0.3.0"
