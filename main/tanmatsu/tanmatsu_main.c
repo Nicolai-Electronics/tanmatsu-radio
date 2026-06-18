@@ -1,4 +1,3 @@
-#include "badgelink_protocol_server.h"
 #include "driver/gpio.h"
 #include "driver/spi_common.h"
 #include "echo_protocol_server.h"
@@ -54,12 +53,6 @@ void app_main(void) {
     res = infrared_protocol_initialize();
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize infrared protocol: %s", esp_err_to_name(res));
-        // (ignore errors, continue)
-    }
-
-    res = badgelink_protocol_initialize();
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize badgelink protocol: %s", esp_err_to_name(res));
         // (ignore errors, continue)
     }
 
