@@ -1,7 +1,13 @@
 #include "system_protocol_server.h"
+#include <dirent.h>
+#include <errno.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include "esp_app_desc.h"
+#include "esp_crc.h"
 #include "esp_err.h"
 #include "esp_hosted_peer_data.h"
 #include "esp_log.h"
@@ -486,103 +492,356 @@ static void system_protocol_appfs_boot(uint32_t sequence_number, const uint8_t* 
 
 // Filesystem
 
+static bool system_protocol_fs_copy_file(const char* src_path, const char* dst_path) {
+    FILE* src = fopen(src_path, "rb");
+    if (!src) return false;
+
+    FILE* dst = fopen(dst_path, "wb");
+    if (!dst) {
+        fclose(src);
+        return false;
+    }
+
+    uint8_t buf[256];
+    size_t  n;
+    bool    ok = true;
+    while ((n = fread(buf, 1, sizeof(buf), src)) > 0) {
+        if (fwrite(buf, 1, n, dst) < n) {
+            ok = false;
+            break;
+        }
+    }
+    if (ferror(src)) ok = false;
+
+    fclose(src);
+    fclose(dst);
+    if (!ok) unlink(dst_path);
+    return ok;
+}
+
 static void system_protocol_fs_list(uint32_t sequence_number, const uint8_t* payload, size_t payload_length) {
-    if (payload_length < sizeof(system_protocol_nvs_location_t)) {
-        ESP_LOGW(TAG, "NVS list command received with insufficient data length: %zu bytes", payload_length);
+    if (payload_length < sizeof(system_protocol_fs_list_request_t)) {
+        ESP_LOGW(TAG, "FS list command received with insufficient data length: %zu bytes", payload_length);
         system_protocol_send_nack(sequence_number);
         return;
     }
-    system_protocol_send_nack(sequence_number);
+    system_protocol_fs_list_request_t* request            = (system_protocol_fs_list_request_t*)payload;
+    request->path[SYSTEM_PROTOCOL_FS_MAX_PATH_LENGTH - 1] = '\0';
+
+    DIR* dp = opendir(request->path);
+    if (!dp) {
+        ESP_LOGW(TAG, "FS list command failed to open directory '%s': errno %d", request->path, errno);
+        system_protocol_send_nack(sequence_number);
+        return;
+    }
+
+    system_protocol_header_t* response_header = (system_protocol_header_t*)reply_buffer;
+    response_header->sequence_number          = sequence_number;
+    response_header->type                     = SYSTEM_PROTOCOL_TYPE_FS_LIST;
+
+    system_protocol_fs_list_response_t* response_body =
+        (system_protocol_fs_list_response_t*)(&reply_buffer[sizeof(system_protocol_header_t)]);
+    response_body->total_count = 0;
+    response_body->count       = 0;
+
+    system_protocol_fs_dirent_t* entries =
+        (system_protocol_fs_dirent_t*)(&reply_buffer[sizeof(system_protocol_header_t) +
+                                                     sizeof(system_protocol_fs_list_response_t)]);
+
+    uint32_t max_count =
+        (sizeof(reply_buffer) - sizeof(system_protocol_header_t) - sizeof(system_protocol_fs_list_response_t)) /
+        sizeof(system_protocol_fs_dirent_t);
+
+    uint32_t       skip = request->offset;
+    struct dirent* ent  = readdir(dp);
+    while (ent) {
+        if (strcmp(ent->d_name, ".") != 0 && strcmp(ent->d_name, "..") != 0) {
+            response_body->total_count++;
+            if (skip > 0) {
+                skip--;
+            } else if (response_body->count < max_count) {
+                strlcpy(entries[response_body->count].name, ent->d_name, SYSTEM_PROTOCOL_FS_MAX_NAME_LENGTH);
+                entries[response_body->count].is_dir = (ent->d_type == DT_DIR) ? 1 : 0;
+                response_body->count++;
+            }
+        }
+        ent = readdir(dp);
+    }
+    closedir(dp);
+
+    generate_custom_event(TANMATSU_EVENT_SYSTEM, reply_buffer,
+                          sizeof(system_protocol_header_t) + sizeof(system_protocol_fs_list_response_t) +
+                              sizeof(system_protocol_fs_dirent_t) * response_body->count);
 }
 
 static void system_protocol_fs_read(uint32_t sequence_number, const uint8_t* payload, size_t payload_length) {
-    if (payload_length < sizeof(system_protocol_nvs_location_t)) {
-        ESP_LOGW(TAG, "NVS list command received with insufficient data length: %zu bytes", payload_length);
+    if (payload_length < sizeof(system_protocol_fs_read_request_t)) {
+        ESP_LOGW(TAG, "FS read command received with insufficient data length: %zu bytes", payload_length);
         system_protocol_send_nack(sequence_number);
         return;
     }
-    system_protocol_send_nack(sequence_number);
+    system_protocol_fs_read_request_t* request            = (system_protocol_fs_read_request_t*)payload;
+    request->path[SYSTEM_PROTOCOL_FS_MAX_PATH_LENGTH - 1] = '\0';
+
+    uint32_t max_length =
+        sizeof(reply_buffer) - sizeof(system_protocol_header_t) - sizeof(system_protocol_fs_read_response_t);
+    uint32_t read_length = request->length < max_length ? request->length : max_length;
+
+    FILE* f = fopen(request->path, "rb");
+    if (!f) {
+        ESP_LOGW(TAG, "FS read command failed to open file '%s': errno %d", request->path, errno);
+        system_protocol_send_nack(sequence_number);
+        return;
+    }
+
+    if (fseek(f, (long)request->offset, SEEK_SET) != 0) {
+        ESP_LOGW(TAG, "FS read command failed to seek in file '%s': errno %d", request->path, errno);
+        fclose(f);
+        system_protocol_send_nack(sequence_number);
+        return;
+    }
+
+    system_protocol_header_t* response_header = (system_protocol_header_t*)reply_buffer;
+    response_header->sequence_number          = sequence_number;
+    response_header->type                     = SYSTEM_PROTOCOL_TYPE_FS_READ;
+
+    system_protocol_fs_read_response_t* response_body =
+        (system_protocol_fs_read_response_t*)(&reply_buffer[sizeof(system_protocol_header_t)]);
+    response_body->offset = request->offset;
+    response_body->length = fread(response_body->data, 1, read_length, f);
+    fclose(f);
+
+    generate_custom_event(
+        TANMATSU_EVENT_SYSTEM, reply_buffer,
+        sizeof(system_protocol_header_t) + sizeof(system_protocol_fs_read_response_t) + response_body->length);
 }
 
 static void system_protocol_fs_write(uint32_t sequence_number, const uint8_t* payload, size_t payload_length) {
-    if (payload_length < sizeof(system_protocol_nvs_location_t)) {
-        ESP_LOGW(TAG, "NVS list command received with insufficient data length: %zu bytes", payload_length);
+    if (payload_length < sizeof(system_protocol_fs_write_request_t)) {
+        ESP_LOGW(TAG, "FS write command received with insufficient data length: %zu bytes", payload_length);
         system_protocol_send_nack(sequence_number);
         return;
     }
-    system_protocol_send_nack(sequence_number);
+    system_protocol_fs_write_request_t* request           = (system_protocol_fs_write_request_t*)payload;
+    request->path[SYSTEM_PROTOCOL_FS_MAX_PATH_LENGTH - 1] = '\0';
+
+    if (payload_length < sizeof(system_protocol_fs_write_request_t) + request->length) {
+        ESP_LOGW(TAG, "FS write command payload too short for data: %zu bytes", payload_length);
+        system_protocol_send_nack(sequence_number);
+        return;
+    }
+
+    FILE* f = (request->offset == 0) ? fopen(request->path, "wb") : fopen(request->path, "r+b");
+    if (!f) {
+        ESP_LOGW(TAG, "FS write command failed to open file '%s': errno %d", request->path, errno);
+        system_protocol_send_nack(sequence_number);
+        return;
+    }
+
+    if (request->offset > 0 && fseek(f, (long)request->offset, SEEK_SET) != 0) {
+        ESP_LOGW(TAG, "FS write command failed to seek in file '%s': errno %d", request->path, errno);
+        fclose(f);
+        system_protocol_send_nack(sequence_number);
+        return;
+    }
+
+    size_t written = fwrite(request->data, 1, request->length, f);
+    fclose(f);
+
+    if (written < request->length) {
+        ESP_LOGW(TAG, "FS write command failed to write all data to file '%s'", request->path);
+        system_protocol_send_nack(sequence_number);
+        return;
+    }
+
+    system_protocol_send_ack(sequence_number);
 }
 
 static void system_protocol_fs_delete(uint32_t sequence_number, const uint8_t* payload, size_t payload_length) {
-    if (payload_length < sizeof(system_protocol_nvs_location_t)) {
-        ESP_LOGW(TAG, "NVS list command received with insufficient data length: %zu bytes", payload_length);
+    char* path                                   = (char*)payload;
+    path[SYSTEM_PROTOCOL_FS_MAX_PATH_LENGTH - 1] = '\0';
+
+    if (unlink(path) != 0) {
+        ESP_LOGW(TAG, "FS delete command failed to delete '%s': errno %d", path, errno);
         system_protocol_send_nack(sequence_number);
         return;
     }
-    system_protocol_send_nack(sequence_number);
+
+    system_protocol_send_ack(sequence_number);
 }
 
 static void system_protocol_fs_checksum(uint32_t sequence_number, const uint8_t* payload, size_t payload_length) {
-    if (payload_length < sizeof(system_protocol_nvs_location_t)) {
-        ESP_LOGW(TAG, "NVS list command received with insufficient data length: %zu bytes", payload_length);
+    char* path                                   = (char*)payload;
+    path[SYSTEM_PROTOCOL_FS_MAX_PATH_LENGTH - 1] = '\0';
+
+    FILE* f = fopen(path, "rb");
+    if (!f) {
+        ESP_LOGW(TAG, "FS checksum command failed to open file '%s': errno %d", path, errno);
         system_protocol_send_nack(sequence_number);
         return;
     }
-    system_protocol_send_nack(sequence_number);
+
+    uint32_t crc  = 0;
+    uint32_t size = 0;
+    uint8_t  buf[256];
+    size_t   n;
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
+        crc   = esp_crc32_le(crc, buf, n);
+        size += n;
+    }
+    bool error = ferror(f) != 0;
+    fclose(f);
+
+    if (error) {
+        ESP_LOGW(TAG, "FS checksum command failed reading file '%s'", path);
+        system_protocol_send_nack(sequence_number);
+        return;
+    }
+
+    system_protocol_header_t* response_header = (system_protocol_header_t*)reply_buffer;
+    response_header->sequence_number          = sequence_number;
+    response_header->type                     = SYSTEM_PROTOCOL_TYPE_FS_CHECKSUM;
+
+    system_protocol_fs_checksum_response_t* response_body =
+        (system_protocol_fs_checksum_response_t*)(&reply_buffer[sizeof(system_protocol_header_t)]);
+    response_body->size  = size;
+    response_body->crc32 = crc;
+
+    generate_custom_event(TANMATSU_EVENT_SYSTEM, reply_buffer,
+                          sizeof(system_protocol_header_t) + sizeof(system_protocol_fs_checksum_response_t));
 }
 
 static void system_protocol_fs_stat(uint32_t sequence_number, const uint8_t* payload, size_t payload_length) {
-    if (payload_length < sizeof(system_protocol_nvs_location_t)) {
-        ESP_LOGW(TAG, "NVS list command received with insufficient data length: %zu bytes", payload_length);
+    char* path                                   = (char*)payload;
+    path[SYSTEM_PROTOCOL_FS_MAX_PATH_LENGTH - 1] = '\0';
+
+    struct stat statbuf;
+    if (stat(path, &statbuf) != 0) {
+        ESP_LOGW(TAG, "FS stat command failed for '%s': errno %d", path, errno);
         system_protocol_send_nack(sequence_number);
         return;
     }
-    system_protocol_send_nack(sequence_number);
+
+    system_protocol_header_t* response_header = (system_protocol_header_t*)reply_buffer;
+    response_header->sequence_number          = sequence_number;
+    response_header->type                     = SYSTEM_PROTOCOL_TYPE_FS_STAT;
+
+    system_protocol_fs_stat_response_t* response_body =
+        (system_protocol_fs_stat_response_t*)(&reply_buffer[sizeof(system_protocol_header_t)]);
+    response_body->size   = statbuf.st_size;
+    response_body->mtime  = (int64_t)statbuf.st_mtime * 1000;
+    response_body->ctime  = (int64_t)statbuf.st_ctime * 1000;
+    response_body->atime  = (int64_t)statbuf.st_atime * 1000;
+    response_body->is_dir = S_ISDIR(statbuf.st_mode) ? 1 : 0;
+
+    generate_custom_event(TANMATSU_EVENT_SYSTEM, reply_buffer,
+                          sizeof(system_protocol_header_t) + sizeof(system_protocol_fs_stat_response_t));
 }
 
 static void system_protocol_fs_mkdir(uint32_t sequence_number, const uint8_t* payload, size_t payload_length) {
-    if (payload_length < sizeof(system_protocol_nvs_location_t)) {
-        ESP_LOGW(TAG, "NVS list command received with insufficient data length: %zu bytes", payload_length);
+    char* path                                   = (char*)payload;
+    path[SYSTEM_PROTOCOL_FS_MAX_PATH_LENGTH - 1] = '\0';
+
+    if (mkdir(path, 0777) != 0) {
+        ESP_LOGW(TAG, "FS mkdir command failed to create directory '%s': errno %d", path, errno);
         system_protocol_send_nack(sequence_number);
         return;
     }
-    system_protocol_send_nack(sequence_number);
+
+    system_protocol_send_ack(sequence_number);
 }
 
 static void system_protocol_fs_rmdir(uint32_t sequence_number, const uint8_t* payload, size_t payload_length) {
-    if (payload_length < sizeof(system_protocol_nvs_location_t)) {
-        ESP_LOGW(TAG, "NVS list command received with insufficient data length: %zu bytes", payload_length);
+    char* path                                   = (char*)payload;
+    path[SYSTEM_PROTOCOL_FS_MAX_PATH_LENGTH - 1] = '\0';
+
+    if (rmdir(path) != 0) {
+        ESP_LOGW(TAG, "FS rmdir command failed to remove directory '%s': errno %d", path, errno);
         system_protocol_send_nack(sequence_number);
         return;
     }
-    system_protocol_send_nack(sequence_number);
+
+    system_protocol_send_ack(sequence_number);
 }
 
 static void system_protocol_fs_get_usage(uint32_t sequence_number, const uint8_t* payload, size_t payload_length) {
-    if (payload_length < sizeof(system_protocol_nvs_location_t)) {
-        ESP_LOGW(TAG, "NVS list command received with insufficient data length: %zu bytes", payload_length);
+    char* path                                   = (char*)payload;
+    path[SYSTEM_PROTOCOL_FS_MAX_PATH_LENGTH - 1] = '\0';
+
+    struct stat statbuf;
+    if (stat(path, &statbuf) != 0) {
+        ESP_LOGW(TAG, "FS get_usage command failed for '%s': errno %d", path, errno);
         system_protocol_send_nack(sequence_number);
         return;
     }
-    system_protocol_send_nack(sequence_number);
+
+    system_protocol_header_t* response_header = (system_protocol_header_t*)reply_buffer;
+    response_header->sequence_number          = sequence_number;
+    response_header->type                     = SYSTEM_PROTOCOL_TYPE_FS_GET_USAGE;
+
+    system_protocol_fs_usage_response_t* response_body =
+        (system_protocol_fs_usage_response_t*)(&reply_buffer[sizeof(system_protocol_header_t)]);
+    response_body->total_bytes = 0;
+    response_body->free_bytes  = 0;
+
+    generate_custom_event(TANMATSU_EVENT_SYSTEM, reply_buffer,
+                          sizeof(system_protocol_header_t) + sizeof(system_protocol_fs_usage_response_t));
 }
 
 static void system_protocol_fs_copy(uint32_t sequence_number, const uint8_t* payload, size_t payload_length) {
-    if (payload_length < sizeof(system_protocol_nvs_location_t)) {
-        ESP_LOGW(TAG, "NVS list command received with insufficient data length: %zu bytes", payload_length);
+    if (payload_length < sizeof(system_protocol_fs_two_path_request_t)) {
+        ESP_LOGW(TAG, "FS copy command received with insufficient data length: %zu bytes", payload_length);
         system_protocol_send_nack(sequence_number);
         return;
     }
-    system_protocol_send_nack(sequence_number);
+    system_protocol_fs_two_path_request_t* request             = (system_protocol_fs_two_path_request_t*)payload;
+    request->src_path[SYSTEM_PROTOCOL_FS_MAX_PATH_LENGTH - 1]  = '\0';
+    request->dest_path[SYSTEM_PROTOCOL_FS_MAX_PATH_LENGTH - 1] = '\0';
+
+    if (!system_protocol_fs_copy_file(request->src_path, request->dest_path)) {
+        ESP_LOGW(TAG, "FS copy command failed to copy '%s' to '%s': errno %d", request->src_path, request->dest_path,
+                 errno);
+        system_protocol_send_nack(sequence_number);
+        return;
+    }
+
+    system_protocol_send_ack(sequence_number);
 }
 
 static void system_protocol_fs_rename(uint32_t sequence_number, const uint8_t* payload, size_t payload_length) {
-    if (payload_length < sizeof(system_protocol_nvs_location_t)) {
-        ESP_LOGW(TAG, "NVS list command received with insufficient data length: %zu bytes", payload_length);
+    if (payload_length < sizeof(system_protocol_fs_two_path_request_t)) {
+        ESP_LOGW(TAG, "FS rename command received with insufficient data length: %zu bytes", payload_length);
         system_protocol_send_nack(sequence_number);
         return;
     }
-    system_protocol_send_nack(sequence_number);
+    system_protocol_fs_two_path_request_t* request             = (system_protocol_fs_two_path_request_t*)payload;
+    request->src_path[SYSTEM_PROTOCOL_FS_MAX_PATH_LENGTH - 1]  = '\0';
+    request->dest_path[SYSTEM_PROTOCOL_FS_MAX_PATH_LENGTH - 1] = '\0';
+
+    if (rename(request->src_path, request->dest_path) == 0) {
+        system_protocol_send_ack(sequence_number);
+        return;
+    }
+
+    if (errno == EXDEV) {
+        if (!system_protocol_fs_copy_file(request->src_path, request->dest_path)) {
+            ESP_LOGW(TAG, "FS rename command failed cross-device copy '%s' to '%s': errno %d", request->src_path,
+                     request->dest_path, errno);
+            system_protocol_send_nack(sequence_number);
+            return;
+        }
+        if (unlink(request->src_path) != 0) {
+            ESP_LOGW(TAG, "FS rename command failed to remove source '%s' after copy: errno %d", request->src_path,
+                     errno);
+            system_protocol_send_nack(sequence_number);
+            return;
+        }
+        system_protocol_send_ack(sequence_number);
+    } else {
+        ESP_LOGW(TAG, "FS rename command failed to rename '%s' to '%s': errno %d", request->src_path,
+                 request->dest_path, errno);
+        system_protocol_send_nack(sequence_number);
+    }
 }
 
 static void system_protocol_get_information(uint32_t sequence_number) {

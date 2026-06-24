@@ -102,4 +102,67 @@ typedef struct {
     };
 } __attribute__((packed)) system_protocol_nvs_value_t;
 
+// FS
+
+#define SYSTEM_PROTOCOL_FS_MAX_PATH_LENGTH 128
+#define SYSTEM_PROTOCOL_FS_MAX_NAME_LENGTH 64
+
+typedef struct {
+    char     path[SYSTEM_PROTOCOL_FS_MAX_PATH_LENGTH];
+    uint32_t offset;
+} __attribute__((packed)) system_protocol_fs_list_request_t;
+
+typedef struct {
+    char    name[SYSTEM_PROTOCOL_FS_MAX_NAME_LENGTH];
+    uint8_t is_dir;
+} __attribute__((packed)) system_protocol_fs_dirent_t;
+
+typedef struct {
+    uint32_t                    total_count;
+    uint32_t                    count;
+    system_protocol_fs_dirent_t entries[0];
+} __attribute__((packed)) system_protocol_fs_list_response_t;
+
+typedef struct {
+    char     path[SYSTEM_PROTOCOL_FS_MAX_PATH_LENGTH];
+    uint32_t offset;
+    uint32_t length;
+} __attribute__((packed)) system_protocol_fs_read_request_t;
+
+typedef struct {
+    uint32_t offset;
+    uint32_t length;
+    uint8_t  data[0];
+} __attribute__((packed)) system_protocol_fs_read_response_t;
+
+typedef struct {
+    char     path[SYSTEM_PROTOCOL_FS_MAX_PATH_LENGTH];
+    uint32_t offset;
+    uint32_t length;
+    uint8_t  data[0];
+} __attribute__((packed)) system_protocol_fs_write_request_t;
+
+typedef struct {
+    uint32_t size;
+    uint32_t crc32;
+} __attribute__((packed)) system_protocol_fs_checksum_response_t;
+
+typedef struct {
+    uint32_t size;
+    int64_t  mtime;
+    int64_t  ctime;
+    int64_t  atime;
+    uint8_t  is_dir;
+} __attribute__((packed)) system_protocol_fs_stat_response_t;
+
+typedef struct {
+    uint64_t total_bytes;
+    uint64_t free_bytes;
+} __attribute__((packed)) system_protocol_fs_usage_response_t;
+
+typedef struct {
+    char src_path[SYSTEM_PROTOCOL_FS_MAX_PATH_LENGTH];
+    char dest_path[SYSTEM_PROTOCOL_FS_MAX_PATH_LENGTH];
+} __attribute__((packed)) system_protocol_fs_two_path_request_t;
+
 esp_err_t system_protocol_initialize(void);
