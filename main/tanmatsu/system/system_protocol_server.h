@@ -13,24 +13,6 @@ typedef enum {
     SYSTEM_PROTOCOL_TYPE_NVS_READ        = 0x11,
     SYSTEM_PROTOCOL_TYPE_NVS_WRITE       = 0x12,
     SYSTEM_PROTOCOL_TYPE_NVS_DELETE      = 0x13,
-    SYSTEM_PROTOCOL_TYPE_APPFS_LIST      = 0x20,
-    SYSTEM_PROTOCOL_TYPE_APPFS_READ      = 0x21,
-    SYSTEM_PROTOCOL_TYPE_APPFS_WRITE     = 0x22,
-    SYSTEM_PROTOCOL_TYPE_APPFS_DELETE    = 0x23,
-    SYSTEM_PROTOCOL_TYPE_APPFS_CHECKSUM  = 0x24,
-    SYSTEM_PROTOCOL_TYPE_APPFS_GET_USAGE = 0x25,
-    SYSTEM_PROTOCOL_TYPE_APPFS_BOOT      = 0x26,
-    SYSTEM_PROTOCOL_TYPE_FS_LIST         = 0x30,
-    SYSTEM_PROTOCOL_TYPE_FS_READ         = 0x31,
-    SYSTEM_PROTOCOL_TYPE_FS_WRITE        = 0x32,
-    SYSTEM_PROTOCOL_TYPE_FS_DELETE       = 0x33,
-    SYSTEM_PROTOCOL_TYPE_FS_CHECKSUM     = 0x34,
-    SYSTEM_PROTOCOL_TYPE_FS_STAT         = 0x35,
-    SYSTEM_PROTOCOL_TYPE_FS_MKDIR        = 0x36,
-    SYSTEM_PROTOCOL_TYPE_FS_RMDIR        = 0x37,
-    SYSTEM_PROTOCOL_TYPE_FS_GET_USAGE    = 0x38,
-    SYSTEM_PROTOCOL_TYPE_FS_COPY         = 0x39,
-    SYSTEM_PROTOCOL_TYPE_FS_RENAME       = 0x3A,
 } system_protocol_packet_type_t;
 
 typedef struct {
@@ -101,68 +83,5 @@ typedef struct {
         uint8_t  value_blob[0];
     };
 } __attribute__((packed)) system_protocol_nvs_value_t;
-
-// FS
-
-#define SYSTEM_PROTOCOL_FS_MAX_PATH_LENGTH 128
-#define SYSTEM_PROTOCOL_FS_MAX_NAME_LENGTH 64
-
-typedef struct {
-    char     path[SYSTEM_PROTOCOL_FS_MAX_PATH_LENGTH];
-    uint32_t offset;
-} __attribute__((packed)) system_protocol_fs_list_request_t;
-
-typedef struct {
-    char    name[SYSTEM_PROTOCOL_FS_MAX_NAME_LENGTH];
-    uint8_t is_dir;
-} __attribute__((packed)) system_protocol_fs_dirent_t;
-
-typedef struct {
-    uint32_t                    total_count;
-    uint32_t                    count;
-    system_protocol_fs_dirent_t entries[0];
-} __attribute__((packed)) system_protocol_fs_list_response_t;
-
-typedef struct {
-    char     path[SYSTEM_PROTOCOL_FS_MAX_PATH_LENGTH];
-    uint32_t offset;
-    uint32_t length;
-} __attribute__((packed)) system_protocol_fs_read_request_t;
-
-typedef struct {
-    uint32_t offset;
-    uint32_t length;
-    uint8_t  data[0];
-} __attribute__((packed)) system_protocol_fs_read_response_t;
-
-typedef struct {
-    char     path[SYSTEM_PROTOCOL_FS_MAX_PATH_LENGTH];
-    uint32_t offset;
-    uint32_t length;
-    uint8_t  data[0];
-} __attribute__((packed)) system_protocol_fs_write_request_t;
-
-typedef struct {
-    uint32_t size;
-    uint32_t crc32;
-} __attribute__((packed)) system_protocol_fs_checksum_response_t;
-
-typedef struct {
-    uint32_t size;
-    int64_t  mtime;
-    int64_t  ctime;
-    int64_t  atime;
-    uint8_t  is_dir;
-} __attribute__((packed)) system_protocol_fs_stat_response_t;
-
-typedef struct {
-    uint64_t total_bytes;
-    uint64_t free_bytes;
-} __attribute__((packed)) system_protocol_fs_usage_response_t;
-
-typedef struct {
-    char src_path[SYSTEM_PROTOCOL_FS_MAX_PATH_LENGTH];
-    char dest_path[SYSTEM_PROTOCOL_FS_MAX_PATH_LENGTH];
-} __attribute__((packed)) system_protocol_fs_two_path_request_t;
 
 esp_err_t system_protocol_initialize(void);
