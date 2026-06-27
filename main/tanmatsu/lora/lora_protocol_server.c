@@ -100,7 +100,13 @@ static void lora_protocol_set_config(uint32_t sequence_number, const uint8_t* co
         return;
     }
     lora_protocol_config_params_t* config_params = (lora_protocol_config_params_t*)config_data;
-    esp_err_t                      res           = lora_set_config(&lora_handle, config_params);
+    printf("LoRa configuration: frequency=%" PRIu32
+           " sf=%u bw=%u cr=%u sync=0x%02x preamble=%u power=%u ramp=%u crc=%d invert_iq=%d ldr_opt=%d rx_boost=%d\n",
+           config_params->frequency, config_params->spreading_factor, config_params->bandwidth,
+           config_params->coding_rate, config_params->sync_word, config_params->preamble_length, config_params->power,
+           config_params->ramp_time, config_params->crc_enabled, config_params->invert_iq,
+           config_params->low_data_rate_optimization, config_params->rx_boost);
+    esp_err_t res = lora_set_config(&lora_handle, config_params);
     if (res == ESP_OK) {
         lora_protocol_send_ack(sequence_number);
     } else {
