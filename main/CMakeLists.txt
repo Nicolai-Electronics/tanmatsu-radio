@@ -85,7 +85,7 @@ endif()
 
 # cli
 list(APPEND COMPONENT_ADD_INCLUDEDIRS "${common_dir}/utils")
-list(APPEND COMPONENT_SRCS "${common_dir}/utils/esp_hosted_cli.c")
+#list(APPEND COMPONENT_SRCS "${common_dir}/utils/esp_hosted_cli.c")
 
 # Requires
 set(COMPONENT_REQUIRES esp_timer esptool_py bootloader main nvs_flash esp_rom esp_wifi wpa_supplicant protocomm protobuf-c driver app_update esp_driver_gpio esp_driver_spi)
@@ -100,6 +100,7 @@ list(APPEND COMPONENT_SRCS "${tanmatsu_dir}/infrared/ir_nec_encoder.c")
 list(APPEND COMPONENT_SRCS "${tanmatsu_dir}/infrared/ir_protocol_server.c")
 list(APPEND COMPONENT_SRCS "${tanmatsu_dir}/system/system_protocol_server.c")
 list(APPEND COMPONENT_SRCS "${tanmatsu_dir}/ieee802154/ieee802154_protocol_server.c")
+list(APPEND COMPONENT_SRCS "${tanmatsu_dir}/cli/esp_hosted_tanmatsu_cli.c")
 list(APPEND COMPONENT_ADD_INCLUDEDIRS "${tanmatsu_dir}")
 list(APPEND COMPONENT_ADD_INCLUDEDIRS "${tanmatsu_dir}/lora")
 list(APPEND COMPONENT_ADD_INCLUDEDIRS "${tanmatsu_dir}/badgelink")
@@ -107,6 +108,7 @@ list(APPEND COMPONENT_ADD_INCLUDEDIRS "${tanmatsu_dir}/echo")
 list(APPEND COMPONENT_ADD_INCLUDEDIRS "${tanmatsu_dir}/infrared")
 list(APPEND COMPONENT_ADD_INCLUDEDIRS "${tanmatsu_dir}/system")
 list(APPEND COMPONENT_ADD_INCLUDEDIRS "${tanmatsu_dir}/ieee802154")
+list(APPEND COMPONENT_ADD_INCLUDEDIRS "${tanmatsu_dir}/cli")
 
 register_component()
 
