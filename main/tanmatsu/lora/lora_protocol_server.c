@@ -240,6 +240,9 @@ static void lora_packet_receive_task(void* pvParameters) {
 }
 
 esp_err_t lora_protocol_initialize(void) {
+    gpio_hold_dis(BSP_LORA_RESET);  // Give control over the reset GPIO back to the LoRa driver (for now the LoRa radio
+                                    // is reset in the init function so we don't care what happens to the pin here)
+
     esp_err_t res = lora_init_local(&lora_handle, LORA_PACKET_QUEUE_SIZE, BSP_LORA_BUS, BSP_LORA_CS, BSP_LORA_RESET,
                                     BSP_LORA_DIO1, BSP_LORA_BUSY);
     if (res != ESP_OK) {
@@ -250,4 +253,8 @@ esp_err_t lora_protocol_initialize(void) {
                             CONFIG_SOC_CPU_CORES_NUM - 1);
 
     return esp_hosted_register_custom_callback(TANMATSU_EVENT_LORA, lora_protocol_packet_callback);
+}
+
+void lora_prepare_for_deep_sleep(void) {
+    gpio_hold_en(BSP_LORA_RESET);
 }

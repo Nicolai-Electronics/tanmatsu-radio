@@ -13,6 +13,7 @@
 #include "priv_events.h"
 #include "system_protocol_server.h"
 #include "tanmatsu_hardware.h"
+#include "ulp_functions.h"
 
 static const char* TAG = "tanmatsu";
 
@@ -86,4 +87,6 @@ void app_main(void) {
         ESP_LOGE(TAG, "Failed to initialize LoRa protocol: %s", esp_err_to_name(res));
         // (ignore errors, continue)
     }
+
+    ulp_init();
 }

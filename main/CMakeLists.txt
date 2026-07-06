@@ -88,7 +88,7 @@ list(APPEND COMPONENT_ADD_INCLUDEDIRS "${common_dir}/utils")
 #list(APPEND COMPONENT_SRCS "${common_dir}/utils/esp_hosted_cli.c")
 
 # Requires
-set(COMPONENT_REQUIRES esp_timer esptool_py bootloader main nvs_flash esp_rom esp_wifi wpa_supplicant protocomm protobuf-c driver app_update esp_driver_gpio esp_driver_spi)
+set(COMPONENT_REQUIRES esp_timer esptool_py bootloader main nvs_flash esp_rom esp_wifi wpa_supplicant protocomm protobuf-c driver app_update esp_driver_gpio esp_driver_spi ulp)
 
 # Tanmatsu
 set(tanmatsu_dir "tanmatsu")
@@ -101,6 +101,7 @@ list(APPEND COMPONENT_SRCS "${tanmatsu_dir}/infrared/ir_protocol_server.c")
 list(APPEND COMPONENT_SRCS "${tanmatsu_dir}/system/system_protocol_server.c")
 list(APPEND COMPONENT_SRCS "${tanmatsu_dir}/ieee802154/ieee802154_protocol_server.c")
 list(APPEND COMPONENT_SRCS "${tanmatsu_dir}/cli/esp_hosted_tanmatsu_cli.c")
+list(APPEND COMPONENT_SRCS "${tanmatsu_dir}/ulp_functions.c")
 list(APPEND COMPONENT_ADD_INCLUDEDIRS "${tanmatsu_dir}")
 list(APPEND COMPONENT_ADD_INCLUDEDIRS "${tanmatsu_dir}/lora")
 list(APPEND COMPONENT_ADD_INCLUDEDIRS "${tanmatsu_dir}/badgelink")
@@ -109,8 +110,16 @@ list(APPEND COMPONENT_ADD_INCLUDEDIRS "${tanmatsu_dir}/infrared")
 list(APPEND COMPONENT_ADD_INCLUDEDIRS "${tanmatsu_dir}/system")
 list(APPEND COMPONENT_ADD_INCLUDEDIRS "${tanmatsu_dir}/ieee802154")
 list(APPEND COMPONENT_ADD_INCLUDEDIRS "${tanmatsu_dir}/cli")
+list(APPEND COMPONENT_ADD_INCLUDEDIRS "${tanmatsu_dir}/ulp")
 
 register_component()
+
+# Tanmatsu ULP
+set(ulp_lp_core_sources
+	"${tanmatsu_dir}/ulp/main.c"
+)
+set(ulp_exp_dep_srcs "${tanmatsu_dir}/ulp_functions.c")
+ulp_embed_binary(tanmatsu_ulp "${ulp_lp_core_sources}" "${ulp_exp_dep_srcs}")
 
 # Add directory of protocomm_priv.h to include paths
 idf_component_get_property(protocomm_dir protocomm COMPONENT_DIR)
