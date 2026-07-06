@@ -11,18 +11,20 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "ir_protocol_server.h"
 #include "nvs.h"
 #include "priv_events.h"
 
 #define NVS_DEFAULT_PART_NAME "nvs"
 
 static const char* TAG = "system";
-static uint8_t     reply_buffer[512];
+
+extern uint8_t protocol_server_reply_buffer[512];
 
 static void generate_custom_event(uint32_t event_id, uint8_t* event_data, size_t event_data_len) {
     esp_err_t res = esp_hosted_send_custom_data(event_id, event_data, event_data_len);
     if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to send lora event: %s", esp_err_to_name(res));
+        ESP_LOGE(TAG, "Failed to send event: %s", esp_err_to_name(res));
     }
 }
 
@@ -119,21 +121,21 @@ static void system_protocol_nvs_list(uint32_t sequence_number, const uint8_t* pa
     request->namespace_name[SYSTEM_PROTOCOL_NVS_MAX_KEY_LENGTH - 1] = '\0';
     request->key[SYSTEM_PROTOCOL_NVS_MAX_KEY_LENGTH - 1]            = '\0';
 
-    system_protocol_header_t* response_header = (system_protocol_header_t*)reply_buffer;
+    system_protocol_header_t* response_header = (system_protocol_header_t*)protocol_server_reply_buffer;
     response_header->sequence_number          = sequence_number;
     response_header->type                     = SYSTEM_PROTOCOL_TYPE_NVS_LIST;
 
     system_protocol_nvs_list_response_t* response_body =
-        (system_protocol_nvs_list_response_t*)(&reply_buffer[sizeof(system_protocol_header_t)]);
+        (system_protocol_nvs_list_response_t*)(&protocol_server_reply_buffer[sizeof(system_protocol_header_t)]);
     response_body->count = 0;
 
     system_protocol_nvs_entry_t* response_entries =
-        (system_protocol_nvs_entry_t*)(&reply_buffer[sizeof(system_protocol_header_t) +
-                                                     sizeof(system_protocol_nvs_list_response_t)]);
+        (system_protocol_nvs_entry_t*)(&protocol_server_reply_buffer[sizeof(system_protocol_header_t) +
+                                                                     sizeof(system_protocol_nvs_list_response_t)]);
 
-    uint32_t max_count =
-        (sizeof(reply_buffer) - sizeof(system_protocol_header_t) - sizeof(system_protocol_nvs_list_response_t)) /
-        sizeof(system_protocol_nvs_entry_t);
+    uint32_t max_count = (sizeof(protocol_server_reply_buffer) - sizeof(system_protocol_header_t) -
+                          sizeof(system_protocol_nvs_list_response_t)) /
+                         sizeof(system_protocol_nvs_entry_t);
 
     nvs_iterator_t iterator;
     esp_err_t res = nvs_entry_find(NVS_DEFAULT_PART_NAME, request->namespace_name[0] ? request->namespace_name : NULL,
@@ -155,7 +157,7 @@ static void system_protocol_nvs_list(uint32_t sequence_number, const uint8_t* pa
     }
     nvs_release_iterator(iterator);
 
-    generate_custom_event(TANMATSU_EVENT_SYSTEM, reply_buffer,
+    generate_custom_event(TANMATSU_EVENT_SYSTEM, protocol_server_reply_buffer,
                           sizeof(system_protocol_header_t) + sizeof(system_protocol_nvs_list_response_t) +
                               sizeof(system_protocol_nvs_entry_t) * response_body->count);
 }
@@ -169,12 +171,12 @@ static void system_protocol_nvs_read(uint32_t sequence_number, const uint8_t* pa
 
     system_protocol_nvs_location_t* request = (system_protocol_nvs_location_t*)payload;
 
-    system_protocol_header_t* response_header = (system_protocol_header_t*)reply_buffer;
+    system_protocol_header_t* response_header = (system_protocol_header_t*)protocol_server_reply_buffer;
     response_header->sequence_number          = sequence_number;
     response_header->type                     = SYSTEM_PROTOCOL_TYPE_NVS_READ;
 
     system_protocol_nvs_value_t* response_body =
-        (system_protocol_nvs_value_t*)(&reply_buffer[sizeof(system_protocol_header_t)]);
+        (system_protocol_nvs_value_t*)(&protocol_server_reply_buffer[sizeof(system_protocol_header_t)]);
     memcpy(&response_body->location, request, sizeof(system_protocol_nvs_location_t));
     response_body->value_length = 0;
 
@@ -247,8 +249,8 @@ static void system_protocol_nvs_read(uint32_t sequence_number, const uint8_t* pa
             size_t required_length = 0;
             res                    = nvs_get_str(nvs_handle, request->entry.key, NULL, &required_length);
             if (res != ESP_OK) break;
-            if (required_length >
-                sizeof(reply_buffer) - sizeof(system_protocol_header_t) - sizeof(system_protocol_nvs_value_t)) {
+            if (required_length > sizeof(protocol_server_reply_buffer) - sizeof(system_protocol_header_t) -
+                                      sizeof(system_protocol_nvs_value_t)) {
                 res = ESP_ERR_NO_MEM;
                 break;
             }
@@ -260,8 +262,8 @@ static void system_protocol_nvs_read(uint32_t sequence_number, const uint8_t* pa
             size_t required_length = 0;
             res                    = nvs_get_blob(nvs_handle, request->entry.key, NULL, &required_length);
             if (res != ESP_OK) break;
-            if (required_length >
-                sizeof(reply_buffer) - sizeof(system_protocol_header_t) - sizeof(system_protocol_nvs_value_t)) {
+            if (required_length > sizeof(protocol_server_reply_buffer) - sizeof(system_protocol_header_t) -
+                                      sizeof(system_protocol_nvs_value_t)) {
                 res = ESP_ERR_NO_MEM;
                 break;
             }
@@ -283,7 +285,7 @@ static void system_protocol_nvs_read(uint32_t sequence_number, const uint8_t* pa
 
     nvs_close(nvs_handle);
     generate_custom_event(
-        TANMATSU_EVENT_SYSTEM, reply_buffer,
+        TANMATSU_EVENT_SYSTEM, protocol_server_reply_buffer,
         sizeof(system_protocol_header_t) + sizeof(system_protocol_nvs_value_t) + response_body->value_length);
 }
 
@@ -437,7 +439,64 @@ static void system_protocol_get_information(uint32_t sequence_number) {
     memcpy(information->firmware_build_time, app_description->time, 16);
     memcpy(information->firmware_idf_version, app_description->idf_ver, 32);
     memcpy(information->firmware_sha256, app_description->app_elf_sha256, 32);
+
+    nvs_handle_t nvs_handle;
+    esp_err_t    res = nvs_open("system", NVS_READONLY, &nvs_handle);
+    if (res == ESP_OK) {
+        nvs_get_u8(nvs_handle, "board.rev", &information->board_revision);
+        nvs_close(nvs_handle);
+    }
+
     generate_custom_event(TANMATSU_EVENT_SYSTEM, buffer, sizeof(buffer));
+}
+
+static void system_protocol_set_board_revision(uint32_t sequence_number, const uint8_t* request_buffer,
+                                               size_t request_length) {
+    if (request_length != sizeof(system_protocol_board_rev_t)) {
+        ESP_LOGW(TAG, "Set board revision: invalid payload size");
+        system_protocol_send_nack(sequence_number);
+    }
+
+    system_protocol_board_rev_t* request = (system_protocol_board_rev_t*)request_buffer;
+
+    nvs_handle_t nvs_handle;
+    esp_err_t    res = nvs_open("system", NVS_READWRITE, &nvs_handle);
+    if (res != ESP_OK) {
+        ESP_LOGW(TAG, "Set board revision: failed to open NVS system namespace");
+        system_protocol_send_nack(sequence_number);
+        return;
+    }
+
+    uint8_t old_value = 0;
+    nvs_get_u8(nvs_handle, "board.rev", &old_value);
+    if (old_value == request->board_revision) {
+        // Already configured
+        nvs_close(nvs_handle);
+        system_protocol_send_ack(sequence_number);
+    }
+
+    res = nvs_set_u8(nvs_handle, "board.rev", request->board_revision);
+    if (res != ESP_OK) {
+        ESP_LOGW(TAG, "Set board revision: failed to write to NVS");
+        nvs_close(nvs_handle);
+        system_protocol_send_nack(sequence_number);
+        return;
+    }
+
+    res = nvs_commit(nvs_handle);
+    if (res != ESP_OK) {
+        ESP_LOGW(TAG, "Set board revision: failed to commit to NVS");
+        nvs_close(nvs_handle);
+        system_protocol_send_nack(sequence_number);
+        return;
+    }
+
+    ESP_LOGI(TAG, "Board revision updated to %u", request->board_revision);
+
+    nvs_close(nvs_handle);
+    system_protocol_send_ack(sequence_number);
+
+    infrared_protocol_reconfigure();  // Reinitialize IR transmitter after board revision change
 }
 
 static void system_protocol_packet_callback(uint32_t msg_id, const uint8_t* request_buffer, size_t request_length) {
@@ -467,6 +526,9 @@ static void system_protocol_packet_callback(uint32_t msg_id, const uint8_t* requ
             break;
         case SYSTEM_PROTOCOL_TYPE_GET_INFORMATION:
             system_protocol_get_information(packet->sequence_number);
+            break;
+        case SYSTEM_PROTOCOL_TYPE_SET_BOARD_REV:
+            system_protocol_set_board_revision(packet->sequence_number, payload, payload_length);
             break;
         case SYSTEM_PROTOCOL_TYPE_NVS_LIST:
             system_protocol_nvs_list(packet->sequence_number, payload, payload_length);
