@@ -9,6 +9,8 @@
 
 static const char* TAG = "nec_encoder";
 
+extern uint8_t protocol_server_reply_buffer[512];
+
 typedef struct {
     rmt_encoder_t     base;                // the base "class", declares the standard encoder interface
     rmt_encoder_t*    copy_encoder;        // use the copy_encoder to encode the leading and ending pulse

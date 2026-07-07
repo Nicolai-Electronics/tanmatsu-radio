@@ -21,43 +21,44 @@
 static const char* TAG = "lora";
 
 static lora_handle_t lora_handle = {0};
-static uint8_t       reply_buffer[512];
+
+extern uint8_t protocol_server_reply_buffer[512];
 
 static void generate_custom_event(uint32_t event_id, uint8_t* event_data, size_t event_data_len) {
     esp_err_t res = esp_hosted_send_custom_data(event_id, event_data, event_data_len);
     if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to send lora event: %s", esp_err_to_name(res));
+        ESP_LOGE(TAG, "Failed to send event: %s", esp_err_to_name(res));
     }
 }
 
 static void lora_protocol_send_nack(uint32_t sequence_number) {
-    lora_protocol_header_t* nack_packet = (lora_protocol_header_t*)reply_buffer;
+    lora_protocol_header_t* nack_packet = (lora_protocol_header_t*)protocol_server_reply_buffer;
     nack_packet->sequence_number        = sequence_number;
     nack_packet->type                   = LORA_PROTOCOL_TYPE_NACK;
     size_t nack_length                  = sizeof(lora_protocol_header_t);
-    generate_custom_event(TANMATSU_EVENT_LORA, reply_buffer, nack_length);
+    generate_custom_event(TANMATSU_EVENT_LORA, protocol_server_reply_buffer, nack_length);
 }
 
 static void lora_protocol_send_ack(uint32_t sequence_number) {
-    lora_protocol_header_t* ack_packet = (lora_protocol_header_t*)reply_buffer;
+    lora_protocol_header_t* ack_packet = (lora_protocol_header_t*)protocol_server_reply_buffer;
     ack_packet->sequence_number        = sequence_number;
     ack_packet->type                   = LORA_PROTOCOL_TYPE_ACK;
     size_t ack_length                  = sizeof(lora_protocol_header_t);
-    generate_custom_event(TANMATSU_EVENT_LORA, reply_buffer, ack_length);
+    generate_custom_event(TANMATSU_EVENT_LORA, protocol_server_reply_buffer, ack_length);
 }
 
 static void lora_protocol_get_mode(uint32_t sequence_number) {
-    lora_protocol_header_t* mode_packet = (lora_protocol_header_t*)reply_buffer;
+    lora_protocol_header_t* mode_packet = (lora_protocol_header_t*)protocol_server_reply_buffer;
     mode_packet->sequence_number        = sequence_number;
     mode_packet->type                   = LORA_PROTOCOL_TYPE_GET_MODE;
     lora_protocol_mode_params_t* mode_params =
-        (lora_protocol_mode_params_t*)(reply_buffer + sizeof(lora_protocol_header_t));
+        (lora_protocol_mode_params_t*)(protocol_server_reply_buffer + sizeof(lora_protocol_header_t));
     lora_protocol_mode_t mode = LORA_PROTOCOL_MODE_UNKNOWN;
     esp_err_t            res  = lora_get_mode(&lora_handle, &mode);
     if (res == ESP_OK) {
         mode_params->mode    = mode;
         size_t status_length = sizeof(lora_protocol_header_t) + sizeof(lora_protocol_mode_params_t);
-        generate_custom_event(TANMATSU_EVENT_LORA, reply_buffer, status_length);
+        generate_custom_event(TANMATSU_EVENT_LORA, protocol_server_reply_buffer, status_length);
     } else {
         lora_protocol_send_nack(sequence_number);
     }
@@ -79,15 +80,15 @@ static void lora_protocol_set_mode(uint32_t sequence_number, const uint8_t* payl
 }
 
 static void lora_protocol_get_config(uint32_t sequence_number) {
-    lora_protocol_header_t* config_packet = (lora_protocol_header_t*)reply_buffer;
+    lora_protocol_header_t* config_packet = (lora_protocol_header_t*)protocol_server_reply_buffer;
     config_packet->sequence_number        = sequence_number;
     config_packet->type                   = LORA_PROTOCOL_TYPE_GET_CONFIG;
     lora_protocol_config_params_t* config_params =
-        (lora_protocol_config_params_t*)(reply_buffer + sizeof(lora_protocol_header_t));
+        (lora_protocol_config_params_t*)(protocol_server_reply_buffer + sizeof(lora_protocol_header_t));
     esp_err_t res = lora_get_config(&lora_handle, config_params);
     if (res == ESP_OK) {
         size_t status_length = sizeof(lora_protocol_header_t) + sizeof(lora_protocol_config_params_t);
-        generate_custom_event(TANMATSU_EVENT_LORA, reply_buffer, status_length);
+        generate_custom_event(TANMATSU_EVENT_LORA, protocol_server_reply_buffer, status_length);
     } else {
         lora_protocol_send_nack(sequence_number);
     }
@@ -115,15 +116,15 @@ static void lora_protocol_set_config(uint32_t sequence_number, const uint8_t* co
 }
 
 static void lora_protocol_get_status(uint32_t sequence_number) {
-    lora_protocol_header_t* status_packet = (lora_protocol_header_t*)reply_buffer;
+    lora_protocol_header_t* status_packet = (lora_protocol_header_t*)protocol_server_reply_buffer;
     status_packet->sequence_number        = sequence_number;
     status_packet->type                   = LORA_PROTOCOL_TYPE_GET_STATUS;
     lora_protocol_status_params_t* status_params =
-        (lora_protocol_status_params_t*)(reply_buffer + sizeof(lora_protocol_header_t));
+        (lora_protocol_status_params_t*)(protocol_server_reply_buffer + sizeof(lora_protocol_header_t));
     esp_err_t res = lora_get_status(&lora_handle, status_params);
     if (res == ESP_OK) {
         size_t status_length = sizeof(lora_protocol_header_t) + sizeof(lora_protocol_status_params_t);
-        generate_custom_event(TANMATSU_EVENT_LORA, reply_buffer, status_length);
+        generate_custom_event(TANMATSU_EVENT_LORA, protocol_server_reply_buffer, status_length);
     } else {
         lora_protocol_send_nack(sequence_number);
     }
@@ -151,14 +152,14 @@ static void lora_protocol_get_rssi_inst(uint32_t sequence_number) {
         int raw_int = (int)(-2.0f * signal_power + 0.5f);
         if (raw_int < 0) raw_int = 0;
         if (raw_int > 255) raw_int = 255;
-        lora_protocol_header_t* rssi_inst_packet = (lora_protocol_header_t*)reply_buffer;
+        lora_protocol_header_t* rssi_inst_packet = (lora_protocol_header_t*)protocol_server_reply_buffer;
         rssi_inst_packet->sequence_number        = sequence_number;
         rssi_inst_packet->type                   = LORA_PROTOCOL_TYPE_GET_RSSI_INST;
         lora_protocol_rssi_inst_params_t* params =
-            (lora_protocol_rssi_inst_params_t*)(reply_buffer + sizeof(lora_protocol_header_t));
+            (lora_protocol_rssi_inst_params_t*)(protocol_server_reply_buffer + sizeof(lora_protocol_header_t));
         params->rssi_raw    = (uint8_t)raw_int;
         size_t reply_length = sizeof(lora_protocol_header_t) + sizeof(lora_protocol_rssi_inst_params_t);
-        generate_custom_event(TANMATSU_EVENT_LORA, reply_buffer, reply_length);
+        generate_custom_event(TANMATSU_EVENT_LORA, protocol_server_reply_buffer, reply_length);
     } else {
         lora_protocol_send_nack(sequence_number);
     }

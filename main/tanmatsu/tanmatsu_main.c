@@ -16,6 +16,8 @@
 
 static const char* TAG = "tanmatsu";
 
+uint8_t protocol_server_reply_buffer[512];
+
 // SPI bus
 
 static esp_err_t spi_initialize(void) {

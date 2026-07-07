@@ -8,6 +8,7 @@
 #include "freertos/semphr.h"
 #include "interface.h"
 #include "ir_nec_encoder.h"
+#include "nvs.h"
 #include "priv_events.h"
 #include "sdio_slave_api.h"
 #include "tanmatsu_hardware.h"
@@ -16,7 +17,32 @@ static const char*          TAG         = "ir";
 static rmt_channel_handle_t tx_channel  = NULL;
 static rmt_encoder_handle_t nec_encoder = NULL;
 
-static esp_err_t init_ir(void) {
+extern uint8_t protocol_server_reply_buffer[512];
+
+static void generate_custom_event(uint32_t event_id, uint8_t* event_data, size_t event_data_len) {
+    esp_err_t res = esp_hosted_send_custom_data(event_id, event_data, event_data_len);
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to send event: %s", esp_err_to_name(res));
+    }
+}
+
+static void infrared_protocol_send_nack(uint32_t sequence_number) {
+    infrared_protocol_header_t packet = {
+        .sequence_number = sequence_number,
+        .type            = INFRARED_PROTOCOL_TYPE_NACK,
+    };
+    generate_custom_event(TANMATSU_EVENT_IR, (uint8_t*)&packet, sizeof(infrared_protocol_header_t));
+}
+
+static void infrared_protocol_send_ack(uint32_t sequence_number) {
+    infrared_protocol_header_t packet = {
+        .sequence_number = sequence_number,
+        .type            = INFRARED_PROTOCOL_TYPE_ACK,
+    };
+    generate_custom_event(TANMATSU_EVENT_IR, (uint8_t*)&packet, sizeof(infrared_protocol_header_t));
+}
+
+static esp_err_t initialize_infrared_driver(void) {
     rmt_tx_channel_config_t tx_channel_cfg = {
         .clk_src           = RMT_CLK_SRC_DEFAULT,
         .resolution_hz     = 1000000,  // 1MHz, 1 tick = 1us
@@ -43,14 +69,26 @@ static esp_err_t init_ir(void) {
     return ESP_OK;
 }
 
-static void ir_protocol_packet_callback(uint32_t msg_id, const uint8_t* data, size_t data_len) {
-    if (msg_id != TANMATSU_EVENT_IR) {
-        ESP_LOGW(TAG, "Received message with unexpected ID: %d", msg_id);
+static void ir_protocol_get_information(uint32_t sequence_number) {
+    infrared_protocol_header_t* packet = (infrared_protocol_header_t*)protocol_server_reply_buffer;
+    packet->sequence_number            = sequence_number;
+    packet->type                       = INFRARED_PROTOCOL_TYPE_GET_INFORMATION;
+    infrared_protocol_information_t* information =
+        (infrared_protocol_information_t*)(protocol_server_reply_buffer + sizeof(infrared_protocol_header_t));
+    information->available = (tx_channel != NULL && nec_encoder != NULL);
+    generate_custom_event(TANMATSU_EVENT_IR, protocol_server_reply_buffer,
+                          sizeof(infrared_protocol_header_t) + sizeof(infrared_protocol_information_t));
+}
+
+static void ir_protocol_send_nec(uint32_t sequence_number, const uint8_t* data, size_t data_len) {
+    if (data_len != sizeof(ir_nec_scan_code_t)) {
+        ESP_LOGW(TAG, "Received IR data with unexpected length: %d", data_len);
         return;
     }
 
-    if (data_len != sizeof(ir_nec_scan_code_t)) {
-        ESP_LOGW(TAG, "Received IR data with unexpected length: %d", data_len);
+    if (tx_channel == NULL || nec_encoder == NULL) {
+        ESP_LOGE(TAG, "Infrared not available");
+        infrared_protocol_send_nack(sequence_number);
         return;
     }
 
@@ -59,15 +97,61 @@ static void ir_protocol_packet_callback(uint32_t msg_id, const uint8_t* data, si
     };
 
     const ir_nec_scan_code_t* scan_code = (const ir_nec_scan_code_t*)data;
-    ESP_ERROR_CHECK(rmt_transmit(tx_channel, nec_encoder, scan_code, sizeof(ir_nec_scan_code_t), &transmit_config));
+    esp_err_t res = rmt_transmit(tx_channel, nec_encoder, scan_code, sizeof(ir_nec_scan_code_t), &transmit_config);
+
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to send infrared NEC code");
+        infrared_protocol_send_nack(sequence_number);
+        return;
+    }
+
+    infrared_protocol_send_ack(sequence_number);
+}
+
+static void ir_protocol_packet_callback(uint32_t msg_id, const uint8_t* request_buffer, size_t request_length) {
+    if (msg_id != TANMATSU_EVENT_IR) {
+        ESP_LOGW(TAG, "Received message with unexpected ID: %d", msg_id);
+        return;
+    }
+    if (request_length < sizeof(infrared_protocol_header_t)) {
+        ESP_LOGW(TAG, "Received infrared protocol packet is too short: %zu bytes", request_length);
+        infrared_protocol_send_nack(0);
+        return;
+    }
+
+    infrared_protocol_header_t* packet = (infrared_protocol_header_t*)request_buffer;
+
+    const uint8_t* payload        = request_buffer + sizeof(infrared_protocol_header_t);
+    size_t         payload_length = request_length - sizeof(infrared_protocol_header_t);
+
+    switch (packet->type) {
+        case INFRARED_PROTOCOL_TYPE_ACK:
+            // No-op, return ack
+            infrared_protocol_send_ack(packet->sequence_number);
+            break;
+        case INFRARED_PROTOCOL_TYPE_NACK:
+            // No-op, return nack
+            infrared_protocol_send_nack(packet->sequence_number);
+            break;
+        case INFRARED_PROTOCOL_TYPE_GET_INFORMATION:
+            ir_protocol_get_information(packet->sequence_number);
+            break;
+        case INFRARED_PROTOCOL_TYPE_SEND_NEC:
+            ir_protocol_send_nec(packet->sequence_number, payload, payload_length);
+            break;
+        default:
+            // Unknown type, return nack
+            infrared_protocol_send_nack(packet->sequence_number);
+            break;
+    }
 }
 
 esp_err_t infrared_protocol_initialize(void) {
     esp_err_t res;
 
-    res = init_ir();
+    res = infrared_protocol_reconfigure();
     if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize IR transmitter: %s", esp_err_to_name(res));
+        ESP_LOGE(TAG, "Failed to reconfigure: %s", esp_err_to_name(res));
         return res;
     }
 
@@ -78,4 +162,29 @@ esp_err_t infrared_protocol_initialize(void) {
     }
 
     return ESP_OK;
+}
+
+esp_err_t infrared_protocol_reconfigure(void) {
+    esp_err_t res = ESP_OK;
+    if (tx_channel == NULL && nec_encoder == NULL) {
+        uint8_t      revision = 0;
+        nvs_handle_t nvs_handle;
+        esp_err_t    res = nvs_open("system", NVS_READONLY, &nvs_handle);
+        if (res == ESP_OK) {
+            nvs_get_u8(nvs_handle, "board.rev", &revision);
+            nvs_close(nvs_handle);
+        }
+
+        if (revision >= 2) {
+            res = initialize_infrared_driver();
+            if (res != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to initialize IR transmitter: %s", esp_err_to_name(res));
+                return res;
+            }
+            ESP_LOGI(TAG, "Initialized the IR transmitter");
+        } else {
+            ESP_LOGI(TAG, "IR transmitter not available on this board revision");
+        }
+    }
+    return res;
 }
