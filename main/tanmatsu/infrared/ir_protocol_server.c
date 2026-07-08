@@ -1,5 +1,7 @@
 #include "ir_protocol_server.h"
+#include <stdbool.h>
 #include <stdio.h>
+#include "driver/gpio.h"
 #include "driver/rmt_tx.h"
 #include "esp_err.h"
 #include "esp_hosted_peer_data.h"
@@ -52,21 +54,30 @@ static esp_err_t initialize_infrared_driver(void) {
         .gpio_num          = BSP_IR_TX,
     };
 
-    ESP_ERROR_CHECK(rmt_new_tx_channel(&tx_channel_cfg, &tx_channel));
+    esp_err_t res = rmt_new_tx_channel(&tx_channel_cfg, &tx_channel);
+    if (res != ESP_OK) {
+        return res;
+    }
 
     rmt_carrier_config_t carrier_cfg = {
         .duty_cycle   = 0.33,
         .frequency_hz = 38000,  // 38KHz
     };
-    ESP_ERROR_CHECK(rmt_apply_carrier(tx_channel, &carrier_cfg));
+    res = rmt_apply_carrier(tx_channel, &carrier_cfg);
+    if (res != ESP_OK) {
+        return res;
+    }
 
     ir_nec_encoder_config_t nec_encoder_cfg = {
         .resolution = 1000000,  // 1MHz, 1 tick = 1us
     };
 
-    ESP_ERROR_CHECK(rmt_new_ir_nec_encoder(&nec_encoder_cfg, &nec_encoder));
-    ESP_ERROR_CHECK(rmt_enable(tx_channel));
-    return ESP_OK;
+    res = rmt_new_ir_nec_encoder(&nec_encoder_cfg, &nec_encoder);
+    if (res != ESP_OK) {
+        return res;
+    }
+
+    return rmt_enable(tx_channel);
 }
 
 static void ir_protocol_get_information(uint32_t sequence_number) {
@@ -78,6 +89,45 @@ static void ir_protocol_get_information(uint32_t sequence_number) {
     information->available = (tx_channel != NULL && nec_encoder != NULL);
     generate_custom_event(TANMATSU_EVENT_IR, protocol_server_reply_buffer,
                           sizeof(infrared_protocol_header_t) + sizeof(infrared_protocol_information_t));
+}
+
+static void ir_protocol_set_configuration(uint32_t sequence_number, uint8_t* payload, size_t payload_length) {
+    if (payload_length != sizeof(infrared_protocol_configuration_t)) {
+        ESP_LOGW(TAG, "Failed to apply infrared configuration: unexpected length (%u)", payload_length);
+        infrared_protocol_send_nack(sequence_number);
+        return;
+    }
+
+    infrared_protocol_configuration_t* config = (infrared_protocol_configuration_t*)payload;
+
+    if (nec_encoder == NULL || tx_channel == NULL) {
+        infrared_protocol_send_nack(sequence_number);
+        return;
+    }
+
+    float duty_cycle = config->duty_cycle / 256.0f;
+
+    if (config->frequency_hz < 2000) {
+        config->frequency_hz = 2000;  // Minimum 2kHz
+    }
+
+    if (duty_cycle > 0.5f) {
+        duty_cycle = 0.5f;  // Maximum 50%
+    }
+
+    rmt_carrier_config_t carrier_cfg = {
+        .duty_cycle   = duty_cycle,
+        .frequency_hz = config->frequency_hz,
+    };
+    esp_err_t res = rmt_apply_carrier(tx_channel, &carrier_cfg);
+
+    if (res != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to apply infrared configuration: %s", esp_err_to_name(res));
+        infrared_protocol_send_nack(sequence_number);
+        return;
+    }
+
+    infrared_protocol_send_ack(sequence_number);
 }
 
 static void ir_protocol_send_nec(uint32_t sequence_number, const uint8_t* data, size_t data_len) {
@@ -136,6 +186,9 @@ static void ir_protocol_packet_callback(uint32_t msg_id, const uint8_t* request_
         case INFRARED_PROTOCOL_TYPE_GET_INFORMATION:
             ir_protocol_get_information(packet->sequence_number);
             break;
+        case INFRARED_PROTOCOL_TYPE_SET_CONFIGURATION: {
+            ir_protocol_set_configuration(packet->sequence_number, payload, payload_length);
+        }
         case INFRARED_PROTOCOL_TYPE_SEND_NEC:
             ir_protocol_send_nec(packet->sequence_number, payload, payload_length);
             break;

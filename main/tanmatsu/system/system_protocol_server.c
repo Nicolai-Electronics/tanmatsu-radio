@@ -450,34 +450,48 @@ static void system_protocol_get_information(uint32_t sequence_number) {
     generate_custom_event(TANMATSU_EVENT_SYSTEM, buffer, sizeof(buffer));
 }
 
-static void system_protocol_set_board_revision(uint32_t sequence_number, const uint8_t* request_buffer,
-                                               size_t request_length) {
-    if (request_length != sizeof(system_protocol_board_rev_t)) {
-        ESP_LOGW(TAG, "Set board revision: invalid payload size");
+static void system_protocol_set_configuration(uint32_t sequence_number, const uint8_t* request_buffer,
+                                              size_t request_length) {
+    if (request_length != sizeof(system_protocol_configuration_t)) {
+        ESP_LOGW(TAG, "Set configuration: invalid payload size");
         system_protocol_send_nack(sequence_number);
     }
 
-    system_protocol_board_rev_t* request = (system_protocol_board_rev_t*)request_buffer;
+    system_protocol_configuration_t* request = (system_protocol_configuration_t*)request_buffer;
 
     nvs_handle_t nvs_handle;
     esp_err_t    res = nvs_open("system", NVS_READWRITE, &nvs_handle);
     if (res != ESP_OK) {
-        ESP_LOGW(TAG, "Set board revision: failed to open NVS system namespace");
+        ESP_LOGW(TAG, "Set configuration: failed to open NVS system namespace");
         system_protocol_send_nack(sequence_number);
         return;
     }
 
-    uint8_t old_value = 0;
-    nvs_get_u8(nvs_handle, "board.rev", &old_value);
-    if (old_value == request->board_revision) {
+    uint8_t old_board_revision = 0;
+    nvs_get_u8(nvs_handle, "board.rev", &old_board_revision);
+    uint16_t old_country_code = 0;
+    nvs_get_u16(nvs_handle, "board.country", &old_country_code);
+
+    uint16_t country_code_u16 = request->country_code[0] + (request->country_code[1] << 8);
+
+    if (old_board_revision == request->board_revision && old_country_code == country_code_u16) {
         // Already configured
         nvs_close(nvs_handle);
         system_protocol_send_ack(sequence_number);
+        return;
     }
 
     res = nvs_set_u8(nvs_handle, "board.rev", request->board_revision);
     if (res != ESP_OK) {
-        ESP_LOGW(TAG, "Set board revision: failed to write to NVS");
+        ESP_LOGW(TAG, "Set configuration: failed board revision to write to NVS");
+        nvs_close(nvs_handle);
+        system_protocol_send_nack(sequence_number);
+        return;
+    }
+
+    res = nvs_set_u16(nvs_handle, "board.country", country_code_u16);
+    if (res != ESP_OK) {
+        ESP_LOGW(TAG, "Set configuration: failed to write country code to NVS");
         nvs_close(nvs_handle);
         system_protocol_send_nack(sequence_number);
         return;
@@ -485,18 +499,19 @@ static void system_protocol_set_board_revision(uint32_t sequence_number, const u
 
     res = nvs_commit(nvs_handle);
     if (res != ESP_OK) {
-        ESP_LOGW(TAG, "Set board revision: failed to commit to NVS");
+        ESP_LOGW(TAG, "Set configuration: failed to commit to NVS");
         nvs_close(nvs_handle);
         system_protocol_send_nack(sequence_number);
         return;
     }
 
-    ESP_LOGI(TAG, "Board revision updated to %u", request->board_revision);
-
     nvs_close(nvs_handle);
     system_protocol_send_ack(sequence_number);
 
     infrared_protocol_reconfigure();  // Reinitialize IR transmitter after board revision change
+
+    ESP_LOGI(TAG, "New configuration applied: board revision '%u', country code: '%c%c'", request->board_revision,
+             request->country_code[0], request->country_code[1]);
 }
 
 static void system_protocol_packet_callback(uint32_t msg_id, const uint8_t* request_buffer, size_t request_length) {
@@ -527,8 +542,8 @@ static void system_protocol_packet_callback(uint32_t msg_id, const uint8_t* requ
         case SYSTEM_PROTOCOL_TYPE_GET_INFORMATION:
             system_protocol_get_information(packet->sequence_number);
             break;
-        case SYSTEM_PROTOCOL_TYPE_SET_BOARD_REV:
-            system_protocol_set_board_revision(packet->sequence_number, payload, payload_length);
+        case SYSTEM_PROTOCOL_TYPE_SET_CONFIGURATION:
+            system_protocol_set_configuration(packet->sequence_number, payload, payload_length);
             break;
         case SYSTEM_PROTOCOL_TYPE_NVS_LIST:
             system_protocol_nvs_list(packet->sequence_number, payload, payload_length);

@@ -6,14 +6,14 @@
 #define SYSTEM_PROTOCOL_NVS_MAX_KEY_LENGTH 16
 
 typedef enum {
-    SYSTEM_PROTOCOL_TYPE_ACK             = 0x00,
-    SYSTEM_PROTOCOL_TYPE_NACK            = 0x01,
-    SYSTEM_PROTOCOL_TYPE_GET_INFORMATION = 0x02,
-    SYSTEM_PROTOCOL_TYPE_SET_BOARD_REV   = 0x03,
-    SYSTEM_PROTOCOL_TYPE_NVS_LIST        = 0x10,
-    SYSTEM_PROTOCOL_TYPE_NVS_READ        = 0x11,
-    SYSTEM_PROTOCOL_TYPE_NVS_WRITE       = 0x12,
-    SYSTEM_PROTOCOL_TYPE_NVS_DELETE      = 0x13,
+    SYSTEM_PROTOCOL_TYPE_ACK               = 0x00,
+    SYSTEM_PROTOCOL_TYPE_NACK              = 0x01,
+    SYSTEM_PROTOCOL_TYPE_GET_INFORMATION   = 0x02,
+    SYSTEM_PROTOCOL_TYPE_SET_CONFIGURATION = 0x03,
+    SYSTEM_PROTOCOL_TYPE_NVS_LIST          = 0x10,
+    SYSTEM_PROTOCOL_TYPE_NVS_READ          = 0x11,
+    SYSTEM_PROTOCOL_TYPE_NVS_WRITE         = 0x12,
+    SYSTEM_PROTOCOL_TYPE_NVS_DELETE        = 0x13,
 } system_protocol_packet_type_t;
 
 typedef struct {
@@ -29,11 +29,13 @@ typedef struct {
     char    firmware_idf_version[32];
     char    firmware_sha256[32];
     uint8_t board_revision;
+    char    country_code[2];
 } __attribute__((packed)) system_protocol_information_t;
 
 typedef struct {
     uint8_t board_revision;
-} __attribute__((packed)) system_protocol_board_rev_t;
+    char    country_code[2];
+} __attribute__((packed)) system_protocol_configuration_t;
 
 // NVS
 

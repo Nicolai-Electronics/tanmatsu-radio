@@ -4,10 +4,11 @@
 #include "esp_err.h"
 
 typedef enum {
-    INFRARED_PROTOCOL_TYPE_ACK             = 0x00,
-    INFRARED_PROTOCOL_TYPE_NACK            = 0x01,
-    INFRARED_PROTOCOL_TYPE_GET_INFORMATION = 0x02,
-    INFRARED_PROTOCOL_TYPE_SEND_NEC        = 0x03,
+    INFRARED_PROTOCOL_TYPE_ACK               = 0x00,
+    INFRARED_PROTOCOL_TYPE_NACK              = 0x01,
+    INFRARED_PROTOCOL_TYPE_GET_INFORMATION   = 0x02,
+    INFRARED_PROTOCOL_TYPE_SET_CONFIGURATION = 0x03,
+    INFRARED_PROTOCOL_TYPE_SEND_NEC          = 0x10,
 } infrared_protocol_packet_type_t;
 
 typedef struct {
@@ -18,6 +19,11 @@ typedef struct {
 typedef struct {
     bool available;
 } __attribute__((packed)) infrared_protocol_information_t;
+
+typedef struct {
+    uint32_t frequency_hz;
+    uint8_t  duty_cycle;
+} __attribute__((packed)) infrared_protocol_configuration_t;
 
 esp_err_t infrared_protocol_initialize(void);
 esp_err_t infrared_protocol_reconfigure(void);
