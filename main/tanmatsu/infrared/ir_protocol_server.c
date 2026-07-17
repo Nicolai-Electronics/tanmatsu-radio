@@ -236,7 +236,7 @@ esp_err_t infrared_protocol_reconfigure(void) {
             }
             ESP_LOGI(TAG, "Initialized the IR transmitter");
         } else {
-            ESP_LOGI(TAG, "IR transmitter not available on this board revision");
+            ESP_LOGI(TAG, "IR transmitter not available on this board revision (rev. %u)", revision);
         }
     }
     return res;
