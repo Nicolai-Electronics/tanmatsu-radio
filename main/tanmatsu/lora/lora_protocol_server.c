@@ -99,13 +99,7 @@ static void lora_protocol_set_config(uint32_t sequence_number, const uint8_t* co
         return;
     }
     lora_protocol_config_params_t* config_params = (lora_protocol_config_params_t*)config_data;
-    printf("LoRa configuration: frequency=%" PRIu32
-           " sf=%u bw=%u cr=%u sync=0x%02x preamble=%u power=%u ramp=%u crc=%d invert_iq=%d ldr_opt=%d rx_boost=%d\n",
-           config_params->frequency, config_params->spreading_factor, config_params->bandwidth,
-           config_params->coding_rate, config_params->sync_word, config_params->preamble_length, config_params->power,
-           config_params->ramp_time, config_params->crc_enabled, config_params->invert_iq,
-           config_params->low_data_rate_optimization, config_params->rx_boost);
-    esp_err_t res = lora_set_config(&lora_handle, config_params);
+    esp_err_t                      res           = lora_set_config(&lora_handle, config_params);
     if (res == ESP_OK) {
         lora_protocol_send_ack(sequence_number);
     } else {
@@ -163,18 +157,42 @@ static void lora_protocol_get_rssi_inst(uint32_t sequence_number) {
     }
 }
 
-static void lora_protocol_get_frequency_error(uint32_t sequence_number) {
-    float     frequency_error = 0;
-    esp_err_t res             = lora_get_frequency_error(&lora_handle, &frequency_error);
+static void lora_protocol_get_frequency_offset(uint32_t sequence_number) {
+    float     frequency_error             = 0;
+    float     local_oscillator_offset     = 0;
+    float     applied_frequency_offset_hz = 0;
+    esp_err_t res = lora_get_frequency_offset(&lora_handle, &frequency_error, &local_oscillator_offset,
+                                              &applied_frequency_offset_hz);
     if (res == ESP_OK) {
         lora_protocol_header_t* packet = (lora_protocol_header_t*)protocol_server_reply_buffer;
         packet->sequence_number        = sequence_number;
-        packet->type                   = LORA_PROTOCOL_TYPE_GET_FREQUENCY_ERROR;
-        lora_protocol_frequency_error_params_t* params =
-            (lora_protocol_frequency_error_params_t*)(protocol_server_reply_buffer + sizeof(lora_protocol_header_t));
-        params->last_frequency_error_hz = frequency_error;
-        size_t reply_length = sizeof(lora_protocol_header_t) + sizeof(lora_protocol_frequency_error_params_t);
+        packet->type                   = LORA_PROTOCOL_TYPE_GET_FREQUENCY_OFFSET;
+        lora_protocol_get_frequency_offset_params_t* params =
+            (lora_protocol_get_frequency_offset_params_t*)(protocol_server_reply_buffer +
+                                                           sizeof(lora_protocol_header_t));
+        params->last_frequency_error_hz     = frequency_error;
+        params->local_oscillator_offset_hz  = local_oscillator_offset;
+        params->applied_frequency_offset_hz = applied_frequency_offset_hz;
+        size_t reply_length = sizeof(lora_protocol_header_t) + sizeof(lora_protocol_get_frequency_offset_params_t);
         generate_custom_event(TANMATSU_EVENT_LORA, protocol_server_reply_buffer, reply_length);
+    } else {
+        lora_protocol_send_nack(sequence_number);
+    }
+}
+
+static void lora_protocol_set_frequency_offset(uint32_t sequence_number, const uint8_t* parameter_data,
+                                               size_t parameter_length) {
+    if (parameter_length < sizeof(lora_protocol_set_frequency_offset_params_t)) {
+        ESP_LOGW(TAG, "Set frequency offset command received with insufficient data length: %zu bytes",
+                 parameter_length);
+        lora_protocol_send_nack(sequence_number);
+        return;
+    }
+    lora_protocol_set_frequency_offset_params_t* parameters =
+        (lora_protocol_set_frequency_offset_params_t*)parameter_data;
+    esp_err_t res = lora_set_frequency_offset(&lora_handle, parameters->frequency_offset_hz);
+    if (res == ESP_OK) {
+        lora_protocol_send_ack(sequence_number);
     } else {
         lora_protocol_send_nack(sequence_number);
     }
@@ -231,9 +249,11 @@ static void lora_protocol_packet_callback(uint32_t msg_id, const uint8_t* reques
         case LORA_PROTOCOL_TYPE_GET_RSSI_INST:
             lora_protocol_get_rssi_inst(packet->sequence_number);
             break;
-        case LORA_PROTOCOL_TYPE_GET_FREQUENCY_ERROR:
-            lora_protocol_get_frequency_error(packet->sequence_number);
+        case LORA_PROTOCOL_TYPE_GET_FREQUENCY_OFFSET:
+            lora_protocol_get_frequency_offset(packet->sequence_number);
             break;
+        case LORA_PROTOCOL_TYPE_SET_FREQUENCY_OFFSET:
+            lora_protocol_set_frequency_offset(packet->sequence_number, payload, payload_length);
         default:
             // Unknown type, return nack
             lora_protocol_send_nack(packet->sequence_number);
