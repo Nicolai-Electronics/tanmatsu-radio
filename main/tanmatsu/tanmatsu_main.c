@@ -6,6 +6,7 @@
 #include "esp_hosted_coprocessor.h"
 #include "esp_hosted_peer_data.h"
 #include "esp_log.h"
+#include "esp_log_level.h"
 #include "ieee802154_protocol_server.h"
 #include "ir_protocol_server.h"
 #include "lora_protocol_server.h"
@@ -51,44 +52,39 @@ void app_main(void) {
     res = echo_protocol_initialize();
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize echo protocol: %s", esp_err_to_name(res));
-        // (ignore errors, continue)
     }
 
     res = infrared_protocol_initialize();
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize infrared protocol: %s", esp_err_to_name(res));
-        // (ignore errors, continue)
     }
 
     res = badgelink_protocol_initialize();
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize badgelink protocol: %s", esp_err_to_name(res));
-        // (ignore errors, continue)
     }
 
     res = system_protocol_initialize();
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize system protocol: %s", esp_err_to_name(res));
-        // (ignore errors, continue)
     }
 
     res = ieee802154_protocol_initialize();
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize IEEE802.15.4 protocol: %s", esp_err_to_name(res));
-        // (ignore errors, continue)
     }
 
     res = spi_initialize();
     if (res != ESP_OK) {
         ESP_LOGE(TAG, "Failed to initialize SPI bus: %s", esp_err_to_name(res));
-        return;  // Can't start LoRa without working SPI bus
-    }
-
-    res = lora_protocol_initialize();
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize LoRa protocol: %s", esp_err_to_name(res));
-        // (ignore errors, continue)
+    } else {
+        res = lora_protocol_initialize();
+        if (res != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to initialize LoRa protocol: %s", esp_err_to_name(res));
+        }
     }
 
     ulp_init();
+
+    esp_log_level_set("slave_rpc", ESP_LOG_WARN);
 }

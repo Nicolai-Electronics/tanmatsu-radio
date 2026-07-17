@@ -10,10 +10,8 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
-#include "interface.h"
 #include "lora.h"
 #include "priv_events.h"
-#include "sdio_slave_api.h"
 #include "tanmatsu_hardware.h"
 
 #define LORA_PACKET_QUEUE_SIZE 32
@@ -165,6 +163,23 @@ static void lora_protocol_get_rssi_inst(uint32_t sequence_number) {
     }
 }
 
+static void lora_protocol_get_frequency_error(uint32_t sequence_number) {
+    float     frequency_error = 0;
+    esp_err_t res             = lora_get_frequency_error(&lora_handle, &frequency_error);
+    if (res == ESP_OK) {
+        lora_protocol_header_t* packet = (lora_protocol_header_t*)protocol_server_reply_buffer;
+        packet->sequence_number        = sequence_number;
+        packet->type                   = LORA_PROTOCOL_TYPE_GET_FREQUENCY_ERROR;
+        lora_protocol_frequency_error_params_t* params =
+            (lora_protocol_frequency_error_params_t*)(protocol_server_reply_buffer + sizeof(lora_protocol_header_t));
+        params->last_frequency_error_hz = frequency_error;
+        size_t reply_length = sizeof(lora_protocol_header_t) + sizeof(lora_protocol_frequency_error_params_t);
+        generate_custom_event(TANMATSU_EVENT_LORA, protocol_server_reply_buffer, reply_length);
+    } else {
+        lora_protocol_send_nack(sequence_number);
+    }
+}
+
 static void lora_protocol_packet_callback(uint32_t msg_id, const uint8_t* request_buffer, size_t request_length) {
     if (msg_id != TANMATSU_EVENT_LORA) {
         ESP_LOGW(TAG, "Received message with unexpected ID: %d", msg_id);
@@ -215,6 +230,9 @@ static void lora_protocol_packet_callback(uint32_t msg_id, const uint8_t* reques
             break;
         case LORA_PROTOCOL_TYPE_GET_RSSI_INST:
             lora_protocol_get_rssi_inst(packet->sequence_number);
+            break;
+        case LORA_PROTOCOL_TYPE_GET_FREQUENCY_ERROR:
+            lora_protocol_get_frequency_error(packet->sequence_number);
             break;
         default:
             // Unknown type, return nack
