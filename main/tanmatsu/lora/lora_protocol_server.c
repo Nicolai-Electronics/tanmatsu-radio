@@ -256,6 +256,7 @@ static void lora_protocol_packet_callback(uint32_t msg_id, const uint8_t* reques
             break;
         case LORA_PROTOCOL_TYPE_SET_FREQUENCY_OFFSET:
             lora_protocol_set_frequency_offset(packet->sequence_number, payload, payload_length);
+            break;
         default:
             // Unknown type, return nack
             lora_protocol_send_nack(packet->sequence_number);
