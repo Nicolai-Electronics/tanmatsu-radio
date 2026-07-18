@@ -25,5 +25,5 @@ dependencies:
     matches:
       - if: "idf_version >5.3"
         version: "~1"
-  nicolaielectronics/tanmatsu-lora: "^0.5.4"
+  nicolaielectronics/tanmatsu-lora: "^0.5.5"
   badgeteam/badgelink: "^0.2.0"
