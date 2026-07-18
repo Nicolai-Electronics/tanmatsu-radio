@@ -93,13 +93,15 @@ static void lora_protocol_get_config(uint32_t sequence_number) {
 }
 
 static void lora_protocol_set_config(uint32_t sequence_number, const uint8_t* config_data, size_t config_length) {
-    if (config_length < sizeof(lora_protocol_config_params_t)) {
+    if (config_length < LORA_PROTOCOL_CONFIG_PARAMS_LEGACY_SIZE) {
         ESP_LOGW(TAG, "Set config command received with insufficient data length: %zu bytes", config_length);
         lora_protocol_send_nack(sequence_number);
         return;
     }
-    lora_protocol_config_params_t* config_params = (lora_protocol_config_params_t*)config_data;
-    esp_err_t                      res           = lora_set_config(&lora_handle, config_params);
+    lora_protocol_config_params_t config_params = {0};
+    size_t copy_length = config_length < sizeof(config_params) ? config_length : sizeof(config_params);
+    memcpy(&config_params, config_data, copy_length);
+    esp_err_t res = lora_set_config(&lora_handle, &config_params);
     if (res == ESP_OK) {
         lora_protocol_send_ack(sequence_number);
     } else {
