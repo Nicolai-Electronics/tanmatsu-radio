@@ -6,7 +6,7 @@
 #include "esp_sleep.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "tanmatsu_hardware.h"
+#include "hardware.h"
 #include "tanmatsu_ulp.h"
 #include "ulp_lp_core.h"
 
