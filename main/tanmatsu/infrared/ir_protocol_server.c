@@ -13,7 +13,7 @@
 #include "nvs.h"
 #include "priv_events.h"
 #include "sdio_slave_api.h"
-#include "tanmatsu_hardware.h"
+#include "hardware.h"
 
 static const char*          TAG         = "ir";
 static rmt_channel_handle_t tx_channel  = NULL;
