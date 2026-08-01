@@ -112,6 +112,16 @@ list(APPEND COMPONENT_ADD_INCLUDEDIRS "${tanmatsu_dir}/ieee802154")
 list(APPEND COMPONENT_ADD_INCLUDEDIRS "${tanmatsu_dir}/cli")
 list(APPEND COMPONENT_ADD_INCLUDEDIRS "${tanmatsu_dir}/ulp")
 
+
+if(DEVICE STREQUAL "tanmatsu")
+	add_compile_definitions(DEVICE_IS_TANMATSU)
+endif ()
+
+if(DEVICE STREQUAL "why2025")
+	add_compile_definitions(DEVICE_IS_WHY2025)
+endif ()
+
+
 register_component()
 
 # Tanmatsu ULP

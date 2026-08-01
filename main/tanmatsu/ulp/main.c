@@ -1,6 +1,6 @@
 #include <stdbool.h>
 #include <stdint.h>
-#include "tanmatsu_hardware.h"
+#include "hardware.h"
 #include "ulp_lp_core_gpio.h"
 #include "ulp_lp_core_interrupts.h"
 #include "ulp_lp_core_utils.h"

@@ -8,7 +8,7 @@
 #include "interface.h"
 #include "priv_events.h"
 #include "sdio_slave_api.h"
-#include "tanmatsu_hardware.h"
+#include "hardware.h"
 
 static const char* TAG = "ieee802154";
 

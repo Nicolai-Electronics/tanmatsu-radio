@@ -12,7 +12,8 @@
 #include "freertos/semphr.h"
 #include "lora.h"
 #include "priv_events.h"
-#include "tanmatsu_hardware.h"
+
+#include "hardware.h"
 
 #define LORA_PACKET_QUEUE_SIZE 32
 
