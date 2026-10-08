@@ -121,9 +121,9 @@ static void lora_protocol_set_config(uint32_t sequence_number, const uint8_t* co
         config_params.use_dcdc = true;  // Enable DC-DC converter
     }
 
-    if (config_params->use_dcdc && (get_board_revision() == 1)) {
+    if (config_params.use_dcdc && (get_board_revision() == 1)) {
         ESP_LOGW(TAG, "Disabled DC-DC converter, not supported on revision 1 board");
-        config_params->use_dcdc = false;
+        config_params.use_dcdc = false;
     }
 
     esp_err_t res = lora_set_config(&lora_handle, &config_params);
