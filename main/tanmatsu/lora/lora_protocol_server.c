@@ -11,6 +11,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "lora.h"
+#include "nvs.h"
 #include "priv_events.h"
 
 #include "hardware.h"
@@ -22,6 +23,17 @@ static const char* TAG = "lora";
 static lora_handle_t lora_handle = {0};
 
 extern uint8_t protocol_server_reply_buffer[512];
+
+static uint8_t get_board_revision(void) {
+    uint8_t      revision = 0;
+    nvs_handle_t nvs_handle;
+    esp_err_t    res = nvs_open("system", NVS_READONLY, &nvs_handle);
+    if (res == ESP_OK) {
+        nvs_get_u8(nvs_handle, "board.rev", &revision);
+        nvs_close(nvs_handle);
+    }
+    return revision;
+}
 
 static void generate_custom_event(uint32_t event_id, uint8_t* event_data, size_t event_data_len) {
     esp_err_t res = esp_hosted_send_custom_data(event_id, event_data, event_data_len);
@@ -99,9 +111,21 @@ static void lora_protocol_set_config(uint32_t sequence_number, const uint8_t* co
         lora_protocol_send_nack(sequence_number);
         return;
     }
+
     lora_protocol_config_params_t config_params = {0};
     size_t copy_length = config_length < sizeof(config_params) ? config_length : sizeof(config_params);
     memcpy(&config_params, config_data, copy_length);
+
+    if (config_length < sizeof(lora_protocol_config_params_t)) {
+        // Configuration command from legacy software (without the use_dcdc flag)
+        config_params.use_dcdc = true;  // Enable DC-DC converter
+    }
+
+    if (config_params.use_dcdc && (get_board_revision() == 1)) {
+        ESP_LOGW(TAG, "Disabled DC-DC converter, not supported on revision 1 board");
+        config_params.use_dcdc = false;
+    }
+
     esp_err_t res = lora_set_config(&lora_handle, &config_params);
     if (res == ESP_OK) {
         lora_protocol_send_ack(sequence_number);
