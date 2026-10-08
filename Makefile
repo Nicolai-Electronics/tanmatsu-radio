@@ -154,7 +154,7 @@ size-files:
 
 .PHONY: format
 format:
-	find main/ -iname '*.h' -o -iname '*.c' -o -iname '*.cpp' | xargs clang-format -i
+	find main/tanmatsu/ -iname '*.h' -o -iname '*.c' -o -iname '*.cpp' | xargs clang-format -i
 
 # Generate instruction json file
 .PHONY: distrib
