@@ -188,6 +188,7 @@ static void ir_protocol_packet_callback(uint32_t msg_id, const uint8_t* request_
             break;
         case INFRARED_PROTOCOL_TYPE_SET_CONFIGURATION: {
             ir_protocol_set_configuration(packet->sequence_number, payload, payload_length);
+            break;
         }
         case INFRARED_PROTOCOL_TYPE_SEND_NEC:
             ir_protocol_send_nec(packet->sequence_number, payload, payload_length);
