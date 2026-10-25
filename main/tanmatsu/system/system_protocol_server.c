@@ -144,10 +144,11 @@ static void system_protocol_nvs_list(uint32_t sequence_number, const uint8_t* pa
         res = nvs_entry_next(&iterator);
         request->offset--;
     }
-    while (res == ESP_OK && response_body->count <= max_count) {
+    while (res == ESP_OK && response_body->count < max_count) {
         nvs_entry_info_t info;
         nvs_entry_info(iterator, &info);
         if (strncmp(request->key, info.key, strlen(request->key)) != 0) {
+            res = nvs_entry_next(&iterator);
             continue;  // Skip entry if key doesn't start with value provided as filter
         }
         snprintf(response_entries[response_body->count].key, SYSTEM_PROTOCOL_NVS_MAX_KEY_LENGTH, "%s", info.key);
@@ -332,7 +333,8 @@ static void system_protocol_nvs_write(uint32_t sequence_number, const uint8_t* p
             res = nvs_set_i64(nvs_handle, request->location.entry.key, request->value_i64);
             break;
         case SYSTEM_PROTOCOL_NVS_VALUE_TYPE_STRING:
-            if (payload_length < sizeof(system_protocol_nvs_value_t) + request->value_length) {
+            if (payload_length < sizeof(system_protocol_nvs_value_t) + request->value_length ||
+                request->value_length == 0 || request->value_string[request->value_length - 1] != '\0') {
                 res = ESP_ERR_INVALID_SIZE;
                 break;
             }
@@ -455,6 +457,7 @@ static void system_protocol_set_configuration(uint32_t sequence_number, const ui
     if (request_length != sizeof(system_protocol_configuration_t)) {
         ESP_LOGW(TAG, "Set configuration: invalid payload size");
         system_protocol_send_nack(sequence_number);
+        return;
     }
 
     system_protocol_configuration_t* request = (system_protocol_configuration_t*)request_buffer;

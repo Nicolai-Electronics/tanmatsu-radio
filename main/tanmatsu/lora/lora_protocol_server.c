@@ -153,6 +153,7 @@ static void lora_protocol_packet_tx(uint32_t sequence_number, const uint8_t* pac
     lora_protocol_lora_packet_t packet = {0};
     if (packet_length > 256) {
         lora_protocol_send_nack(sequence_number);
+        return;
     }
     memcpy(packet.data, packet_data, packet_length);
     packet.length = packet_length;

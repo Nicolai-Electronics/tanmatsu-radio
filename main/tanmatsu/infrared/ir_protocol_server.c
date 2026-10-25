@@ -132,7 +132,8 @@ static void ir_protocol_set_configuration(uint32_t sequence_number, uint8_t* pay
 
 static void ir_protocol_send_nec(uint32_t sequence_number, const uint8_t* data, size_t data_len) {
     if (data_len != sizeof(ir_nec_scan_code_t)) {
-        ESP_LOGW(TAG, "Received IR data with unexpected length: %d", data_len);
+        ESP_LOGW(TAG, "Received IR data with unexpected length: %zu", data_len);
+        infrared_protocol_send_nack(sequence_number);
         return;
     }
 
